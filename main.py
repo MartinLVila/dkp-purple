@@ -6,12 +6,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-
-CANAL_ADMIN = 647611825172774934
-CANAL_AUSENCIAS = 647611825172774934
-CANAL_CONSULTA = 647611825172774934
-
-ADMINS_IDS = {154770363081949184, 1122334455}
+CANAL_ADMIN = os.getenv("CANAL_ADMIN")
+CANAL_AUSENCIAS = os.getenv("CANAL_AUSENCIAS")
+CANAL_CONSULTA = os.getenv("CANAL_CONSULTA")
+ADMINS_IDS = set(map(int, os.getenv("ADMINS_IDS").split(',')))
 
 intents = discord.Intents.default()
 intents.messages = True
