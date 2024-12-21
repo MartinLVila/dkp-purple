@@ -1,10 +1,12 @@
 import os
 import discord
 import json
+import logging  # Importar el módulo de logging
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
+# Carga las variables de entorno desde el archivo .env
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 CANAL_ADMIN = int(os.getenv("CANAL_ADMIN"))
@@ -13,12 +15,23 @@ CANAL_TARDE = int(os.getenv("CANAL_TARDE"))
 CANAL_CONSULTA = int(os.getenv("CANAL_CONSULTA"))
 ADMINS_IDS = set(map(int, os.getenv("ADMINS_IDS").split(',')))
 
+# Configuración del logging
+logging.basicConfig(
+    filename='bot_commands.log',  # Archivo donde se almacenarán los logs
+    level=logging.INFO,            # Nivel de severidad de los logs
+    format='%(asctime)s:%(levelname)s:%(name)s: %(message)s'  # Formato de los logs
+)
+
+logger = logging.getLogger('bot_commands')
+
+# Configuración de los intents de Discord
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
 intents.guilds = True
 intents.members = True
 
+# Inicializa el bot
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 DATA_FILE = "scores.json"
@@ -26,6 +39,7 @@ EVENTS_FILE = "events.json"
 user_data = {}
 events_info = {}
 
+# Función para cargar datos de usuarios
 def cargar_datos():
     global user_data
     if os.path.exists(DATA_FILE):
@@ -61,6 +75,7 @@ def cargar_datos():
     else:
         user_data = {}
 
+# Función para guardar datos de usuarios
 def guardar_datos():
     serializable_data = {}
     for nombre, datos in user_data.items():
@@ -79,6 +94,7 @@ def guardar_datos():
     with open(DATA_FILE, "w") as f:
         json.dump(serializable_data, f, indent=4)
 
+# Función para cargar eventos
 def cargar_eventos():
     global events_info
     if os.path.exists(EVENTS_FILE):
@@ -96,6 +112,7 @@ def cargar_eventos():
     else:
         events_info = {}
 
+# Función para guardar eventos
 def guardar_eventos():
     with open(EVENTS_FILE, "w") as f:
         serializable_events = {
@@ -110,15 +127,18 @@ def guardar_eventos():
         }
         json.dump(serializable_events, f, indent=4)
 
+# Evento cuando el bot está listo
 @bot.event
 async def on_ready():
     cargar_datos()
     cargar_eventos()
     print(f"Bot conectado como {bot.user}")
+    logger.info(f"Bot conectado como {bot.user} (ID: {bot.user.id})")
     limpiar_eventos_expirados.start()
     limpiar_absences_expiradas.start()
     limpiar_eventos_justificados_expirados.start()
 
+# Función para verificar si un usuario es admin
 def es_admin(ctx):
     return (ctx.author.id in ADMINS_IDS)
 
@@ -130,17 +150,17 @@ async def ausencia(ctx, *args):
     """
     Permite justificar una ausencia.
     - Usuarios Regulares:
-        - Por días: `!ausencia <dias>`
-        - Por evento: `!ausencia <nombre_evento>`
+        - Por días: !ausencia <dias>
+        - Por evento: !ausencia <nombre_evento>
     - Administradores:
-        - Por días: `!ausencia <nombre_usuario> <dias>`
-        - Por evento: `!ausencia <nombre_usuario> <nombre_evento>`
+        - Por días: !ausencia <nombre_usuario> <dias>
+        - Por evento: !ausencia <nombre_usuario> <nombre_evento>
     """
     if es_admin(ctx):
         if len(args) != 2:
             await ctx.send(embed=discord.Embed(
                 title="Uso Incorrecto",
-                description="Uso correcto para administradores:\n`!ausencia nombreusuario dias`\n`!ausencia nombreusuario nombreevento`",
+                description="Uso correcto para administradores:\n!ausencia nombreusuario dias\n!ausencia nombreusuario nombreevento",
                 color=discord.Color.red()
             ))
             return
@@ -187,7 +207,7 @@ async def ausencia(ctx, *args):
         if len(args) != 1:
             await ctx.send(embed=discord.Embed(
                 title="Uso Incorrecto",
-                description="Uso correcto para usuarios:\n`!ausencia dias`\n`!ausencia nombreevento`",
+                description="Uso correcto para usuarios:\n!ausencia dias\n!ausencia nombreevento",
                 color=discord.Color.red()
             ))
             return
@@ -632,7 +652,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
     if nombre_evento not in events_info:
         await ctx.send(embed=discord.Embed(
             title="Evento No Encontrado",
-            description=f"No se encontró el evento **{nombre_evento}**. Asegúrate de haberlo registrado con `!evento`.",
+            description=f"No se encontró el evento **{nombre_evento}**. Asegúrate de haberlo registrado con !evento.",
             color=discord.Color.red()
         ))
         return
@@ -776,6 +796,14 @@ async def on_command_error(ctx, error):
         await ctx.send("Tipo de argumento inválido.")
     else:
         await ctx.send("Ocurrió un error al procesar el comando.")
+        logger.error(f"Error en comando {ctx.command} usado por {ctx.author} (ID: {ctx.author.id}): {error}")
         print(f"Error: {error}")
+
+@bot.event
+async def on_command(ctx):
+    nombre_comando = ctx.command.name
+    usuario = ctx.author
+    argumentos = ctx.message.content
+    logger.info(f"Comando: {nombre_comando} | Usuario: {usuario} (ID: {usuario.id}) | Argumentos: {argumentos}")
 
 bot.run(TOKEN)
