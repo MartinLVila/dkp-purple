@@ -54,62 +54,130 @@ def es_admin(ctx):
 # Comando para ausencia en un evento (justificado)
 ############################
 @bot.command(name="ausencia")
-async def ausencia(ctx, nombre_evento: str):
-    if ctx.channel.id != CANAL_AUSENCIAS:
-        await ctx.send(embed=discord.Embed(
-            title="Canal Incorrecto",
-            description=f"Este comando solo puede usarse en el canal designado para ausencias.",
-            color=discord.Color.red()
-        ))
-        return
-
-    nombre_usuario = None
-    for nombre, datos in user_data.items():
-        if datos.get("discord_id") == ctx.author.id:
-            nombre_usuario = nombre
-            break
-
-    if nombre_usuario is None:
-        await ctx.send(embed=discord.Embed(
-            title="No vinculado",
-            description="No se encontró un nombre vinculado a tu usuario. Pide a un oficial que te vincule primero.",
-            color=discord.Color.red()
-        ))
-        return
-
-    if "justificado" not in user_data[nombre_usuario]:
-        user_data[nombre_usuario]["justificado"] = []
-    if nombre_evento not in user_data[nombre_usuario]["justificado"]:
-        user_data[nombre_usuario]["justificado"].append(nombre_evento)
-
-    guardar_datos()
-    await ctx.send(embed=discord.Embed(
-        title="Ausencia Justificada",
-        description=f"Has quedado justificado para el evento **{nombre_evento}**, {nombre_usuario}.",
-        color=discord.Color.yellow()
-    ))
-
-@bot.command(name="dkp")
-async def score(ctx, nombre: str = None):
-    if nombre:
-        if nombre not in user_data:
+async def ausencia(ctx, nombre_usuario: str = None, nombre_evento: str = None):
+    """
+    Permite justificar una ausencia.
+    - Usuarios Regulares: !ausencia nombreevento
+    - Administradores: !ausencia nombreusuario nombreevento
+    """
+    # Verificar si el usuario es admin y ha proporcionado ambos argumentos
+    if es_admin(ctx):
+        if nombre_usuario is None or nombre_evento is None:
+            await ctx.send(embed=discord.Embed(
+                title="Uso Incorrecto",
+                description="Uso correcto para administradores: `!ausencia nombreusuario nombreevento`",
+                color=discord.Color.red()
+            ))
+            return
+        # Verificar si el nombre_usuario existe
+        if nombre_usuario not in user_data:
             await ctx.send(embed=discord.Embed(
                 title="Usuario no encontrado",
-                description=f"No se encontró el usuario con nombre **{nombre}**.",
+                description=f"No se encontró el usuario con nombre **{nombre_usuario}**.",
+                color=discord.Color.red()
+            ))
+            return
+    else:
+        # Usuarios Regulares deben proporcionar solo nombre_evento
+        if nombre_evento is None:
+            await ctx.send(embed=discord.Embed(
+                title="Uso Incorrecto",
+                description="Uso correcto para usuarios: `!ausencia nombreevento`",
+                color=discord.Color.red()
+            ))
+            return
+        nombre_usuario = None
+        # Buscar el nombre_usuario vinculado al autor
+        for nombre, datos in user_data.items():
+            if datos.get("discord_id") == ctx.author.id:
+                nombre_usuario = nombre
+                break
+        if nombre_usuario is None:
+            await ctx.send(embed=discord.Embed(
+                title="No Vinculado",
+                description="No se encontró un nombre vinculado a tu usuario. Pide a un oficial que te vincule primero.",
                 color=discord.Color.red()
             ))
             return
 
-        puntos = user_data[nombre]["score"]
-        status = user_data[nombre].get("status", "normal")
+    # Si es admin, nombre_usuario ya está definido; si es usuario, se obtuvo arriba
+    if es_admin(ctx) and nombre_usuario:
+        target_user = nombre_usuario
+    else:
+        # Usuarios Regulares
+        target_user = nombre_usuario
+
+    # Ahora, target_user está definido
+    if target_user not in user_data:
+        await ctx.send(embed=discord.Embed(
+            title="Usuario no encontrado",
+            description=f"No se encontró el usuario con nombre **{target_user}**.",
+            color=discord.Color.red()
+        ))
+        return
+
+    if nombre_evento not in user_data[target_user].get("justificado", []):
+        user_data[target_user].setdefault("justificado", []).append(nombre_evento)
+
+    guardar_datos()
+    if es_admin(ctx):
+        await ctx.send(embed=discord.Embed(
+            title="Ausencia Justificada",
+            description=f"La ausencia para el evento **{nombre_evento}** ha sido justificada para el usuario **{target_user}**.",
+            color=discord.Color.yellow()
+        ))
+    else:
+        await ctx.send(embed=discord.Embed(
+            title="Ausencia Justificada",
+            description=f"Has quedado justificado para el evento **{nombre_evento}**, {target_user}.",
+            color=discord.Color.yellow()
+        ))
+
+@bot.command(name="dkp")
+async def score(ctx, nombre: str = None):
+    if nombre:
+        # Primero, verificar si se proporcionó una mención
+        member = ctx.message.mentions[0] if ctx.message.mentions else None
+
+        if member:
+            # Buscar el nombre_usuario asociado al miembro mencionado
+            nombre_usuario = None
+            for nombre_u, datos in user_data.items():
+                if datos.get("discord_id") == member.id:
+                    nombre_usuario = nombre_u
+                    break
+
+            if nombre_usuario is None:
+                await ctx.send(embed=discord.Embed(
+                    title="No Vinculado",
+                    description="El usuario mencionado no está vinculado al sistema DKP.",
+                    color=discord.Color.red()
+                ))
+                return
+        else:
+            # Tratar 'nombre' como nombre_usuario
+            nombre_usuario = nombre
+
+            if nombre_usuario not in user_data:
+                await ctx.send(embed=discord.Embed(
+                    title="Usuario no encontrado",
+                    description=f"No se encontró el usuario con nombre **{nombre_usuario}**.",
+                    color=discord.Color.red()
+                ))
+                return
+
+        # Obtener DKP y Estado
+        puntos = user_data[nombre_usuario]["score"]
+        status = user_data[nombre_usuario].get("status", "normal")
         estado = "VACACIONES" if status == "vacaciones" else "ACTIVO"
         color = discord.Color.green() if puntos >= 0 else discord.Color.red()
 
-        embed = discord.Embed(title=f"DKP de {nombre}", color=color)
+        embed = discord.Embed(title=f"DKP de {nombre_usuario}", color=color)
         embed.add_field(name="DKP", value=str(puntos), inline=True)
         embed.add_field(name="Estado", value=estado, inline=True)
         await ctx.send(embed=embed)
     else:
+        # Mostrar tabla de todos los usuarios
         if not user_data:
             await ctx.send("No hay datos de usuarios aún.")
             return
@@ -193,18 +261,23 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
 
     desc = "```\n"
-    desc += "{:<15} {:<10} {:<7} {:<8}\n".format("Nombre", "Estado", "Antes", "Después")
-    desc += "-"*40 + "\n"
+    desc += "{:<15} {:<12} {:<10} {:<10}\n".format("Nombre", "Estado", "Antes", "Después")
+    desc += "-"*50 + "\n"
     for nombre, datos in all_users:
         antes = old_scores.get(nombre, 0)
         despues = datos["score"]
 
+        # Determinar el estado para este evento
         if datos.get("status", "normal") == "vacaciones":
             estado = "VACACIONES"
+        elif nombre in usuarios_mencionados:
+            estado = "ASISTIO"
+        elif nombre in user_data and nombre_evento in user_data[nombre].get("justificado", []):
+            estado = "JUSTIFICADO"
         else:
-            estado = ""  # Dejar en blanco si no está de vacaciones
+            estado = "NO ASISTIO"
 
-        desc += "{:<15} {:<10} {:<7} {:<8}\n".format(
+        desc += "{:<15} {:<12} {:<10} {:<10}\n".format(
             nombre, estado, str(antes), str(despues)
         )
     desc += "```"
