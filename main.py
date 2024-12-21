@@ -1,13 +1,15 @@
 import os
 import discord
 import json
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 CANAL_ADMIN = int(os.getenv("CANAL_ADMIN"))
 CANAL_AUSENCIAS = int(os.getenv("CANAL_AUSENCIAS"))
+CANAL_TARDE = int(os.getenv("CANAL_TARDE"))
 CANAL_CONSULTA = int(os.getenv("CANAL_CONSULTA"))
 ADMINS_IDS = set(map(int, os.getenv("ADMINS_IDS").split(',')))
 
@@ -20,7 +22,9 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 DATA_FILE = "scores.json"
+EVENTS_FILE = "events.json"
 user_data = {}
+events_info = {}
 
 def cargar_datos():
     global user_data
@@ -28,7 +32,7 @@ def cargar_datos():
         try:
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
-                # Asegurarse de que cada usuario tenga el campo 'status'
+
                 for nombre, datos in data.items():
                     if "status" not in datos:
                         datos["status"] = "normal"
@@ -42,10 +46,41 @@ def guardar_datos():
     with open(DATA_FILE, "w") as f:
         json.dump(user_data, f, indent=4)
 
+def cargar_eventos():
+    global events_info
+    if os.path.exists(EVENTS_FILE):
+        try:
+            with open(EVENTS_FILE, "r") as f:
+                data = json.load(f)
+                for evento, info in data.items():
+                    info["timestamp"] = datetime.strptime(info["timestamp"], "%Y-%m-%dT%H:%M:%S.%f")
+                    info["linked_users"] = set(info["linked_users"])
+                    info["late_users"] = set(info["late_users"])
+                events_info = data
+        except json.JSONDecodeError:
+            events_info = {}
+    else:
+        events_info = {}
+
+def guardar_eventos():
+    with open(EVENTS_FILE, "w") as f:
+        serializable_events = {
+            evento: {
+                "timestamp": info["timestamp"].isoformat(),
+                "linked_users": list(info["linked_users"]),
+                "late_users": list(info["late_users"]),
+                "puntaje": info["puntaje"]
+            }
+            for evento, info in events_info.items()
+        }
+        json.dump(serializable_events, f, indent=4)
+
 @bot.event
 async def on_ready():
     cargar_datos()
+    cargar_eventos()
     print(f"Bot conectado como {bot.user}")
+    limpiar_eventos_expirados.start()
 
 def es_admin(ctx):
     return (ctx.author.id in ADMINS_IDS)
@@ -60,7 +95,7 @@ async def ausencia(ctx, nombre_usuario: str = None, nombre_evento: str = None):
     - Usuarios Regulares: !ausencia nombreevento
     - Administradores: !ausencia nombreusuario nombreevento
     """
-    # Verificar si el usuario es admin y ha proporcionado ambos argumentos
+
     if es_admin(ctx):
         if nombre_usuario is None or nombre_evento is None:
             await ctx.send(embed=discord.Embed(
@@ -69,7 +104,7 @@ async def ausencia(ctx, nombre_usuario: str = None, nombre_evento: str = None):
                 color=discord.Color.red()
             ))
             return
-        # Verificar si el nombre_usuario existe
+
         if nombre_usuario not in user_data:
             await ctx.send(embed=discord.Embed(
                 title="Usuario no encontrado",
@@ -78,7 +113,6 @@ async def ausencia(ctx, nombre_usuario: str = None, nombre_evento: str = None):
             ))
             return
     else:
-        # Usuarios Regulares deben proporcionar solo nombre_evento
         if nombre_evento is None:
             await ctx.send(embed=discord.Embed(
                 title="Uso Incorrecto",
@@ -87,7 +121,6 @@ async def ausencia(ctx, nombre_usuario: str = None, nombre_evento: str = None):
             ))
             return
         nombre_usuario = None
-        # Buscar el nombre_usuario vinculado al autor
         for nombre, datos in user_data.items():
             if datos.get("discord_id") == ctx.author.id:
                 nombre_usuario = nombre
@@ -100,14 +133,11 @@ async def ausencia(ctx, nombre_usuario: str = None, nombre_evento: str = None):
             ))
             return
 
-    # Si es admin, nombre_usuario ya está definido; si es usuario, se obtuvo arriba
     if es_admin(ctx) and nombre_usuario:
         target_user = nombre_usuario
     else:
-        # Usuarios Regulares
         target_user = nombre_usuario
 
-    # Ahora, target_user está definido
     if target_user not in user_data:
         await ctx.send(embed=discord.Embed(
             title="Usuario no encontrado",
@@ -136,11 +166,9 @@ async def ausencia(ctx, nombre_usuario: str = None, nombre_evento: str = None):
 @bot.command(name="dkp")
 async def score(ctx, nombre: str = None):
     if nombre:
-        # Primero, verificar si se proporcionó una mención
         member = ctx.message.mentions[0] if ctx.message.mentions else None
 
         if member:
-            # Buscar el nombre_usuario asociado al miembro mencionado
             nombre_usuario = None
             for nombre_u, datos in user_data.items():
                 if datos.get("discord_id") == member.id:
@@ -155,7 +183,6 @@ async def score(ctx, nombre: str = None):
                 ))
                 return
         else:
-            # Tratar 'nombre' como nombre_usuario
             nombre_usuario = nombre
 
             if nombre_usuario not in user_data:
@@ -177,7 +204,6 @@ async def score(ctx, nombre: str = None):
         embed.add_field(name="Estado", value=estado, inline=True)
         await ctx.send(embed=embed)
     else:
-        # Mostrar tabla de todos los usuarios
         if not user_data:
             await ctx.send("No hay datos de usuarios aún.")
             return
@@ -222,6 +248,13 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
         ))
         return
 
+    usuarios_mencionados = list(usuarios_mencionados)
+    noresta = False
+    usuarios_mencionados_lower = [u.lower() for u in usuarios_mencionados]
+    if 'noresta' in usuarios_mencionados_lower:
+        noresta = True
+        usuarios_mencionados = [u for u in usuarios_mencionados if u.lower() != 'noresta']
+
     usuarios_mencionados = set(usuarios_mencionados)
 
     for nombre, datos in user_data.items():
@@ -237,26 +270,48 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     old_scores = {nombre: datos["score"] for nombre, datos in user_data.items()}
     old_justificado = {nombre: (nombre_evento in datos["justificado"]) for nombre, datos in user_data.items()}
 
-    for nombre, datos in user_data.items():
-        # Verificar si el usuario está en vacaciones
-        if datos.get("status", "normal") == "vacaciones":
-            continue  # Ignorar ajustes de DKP para este usuario
+    event_time = datetime.utcnow()
+    linked_users_at_event = set(user_data.keys())
+    events_info[nombre_evento] = {
+        "timestamp": event_time,
+        "linked_users": linked_users_at_event,
+        "late_users": set(),
+        "puntaje": puntaje
+    }
 
-        justificado_evento = (nombre_evento in datos["justificado"])
+    if noresta:
+        for nombre, datos in user_data.items():
+            if datos.get("status", "normal") == "vacaciones":
+                continue
 
-        if nombre in usuarios_mencionados:
-            datos["score"] += puntaje
+            if nombre in usuarios_mencionados:
+                datos["score"] += puntaje
 
-            if justificado_evento:
-                datos["justificado"].remove(nombre_evento)
-        else:
-            if justificado_evento:
-                datos["score"] -= puntaje
-                datos["justificado"].remove(nombre_evento)
+                if nombre_evento in datos.get("justificado", []):
+                    datos["justificado"].remove(nombre_evento)
             else:
-                datos["score"] -= (puntaje * 2)
+                pass
+    else:
+        for nombre, datos in user_data.items():
+            if datos.get("status", "normal") == "vacaciones":
+                continue
+
+            justificado_evento = (nombre_evento in datos["justificado"])
+
+            if nombre in usuarios_mencionados:
+                datos["score"] += puntaje
+
+                if justificado_evento:
+                    datos["justificado"].remove(nombre_evento)
+            else:
+                if justificado_evento:
+                    datos["score"] -= puntaje
+                    datos["justificado"].remove(nombre_evento)
+                else:
+                    datos["score"] -= (puntaje * 2)
 
     guardar_datos()
+    guardar_eventos()
 
     all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
 
@@ -272,7 +327,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
             estado = "VACACIONES"
         elif nombre in usuarios_mencionados:
             estado = "ASISTIO"
-        elif nombre in user_data and nombre_evento in user_data[nombre].get("justificado", []):
+        elif nombre_evento in datos.get("justificado", []):
             estado = "JUSTIFICADO"
         else:
             estado = "NO ASISTIO"
@@ -457,6 +512,119 @@ async def ausencia_volvio(ctx, nombre: str):
         description=f"El usuario **{nombre}** ha vuelto de **VACACIONES** y está nuevamente en estado **ACTIVO**.",
         color=discord.Color.green()
     ))
+
+############################
+# Comando !llegue_tarde
+############################
+
+@bot.command(name="llegue_tarde")
+async def llegue_tarde(ctx, nombre_evento: str):
+    """
+    Permite a un usuario justificar su llegada tardía a un evento.
+    - Solo se puede usar dentro de los 10 minutos posteriores a que se emitió el comando !evento NOMBREEVENTO.
+    - Solo se puede usar una vez por usuario por evento en el canal de ausencias.
+    """
+
+    if ctx.channel.id != CANAL_TARDE:
+        await ctx.send(embed=discord.Embed(
+            title="Canal Incorrecto",
+            description=f"Este comando solo puede usarse en el canal designado para llegadas tardías.",
+            color=discord.Color.red()
+        ))
+        return
+
+    if nombre_evento not in events_info:
+        await ctx.send(embed=discord.Embed(
+            title="Evento No Encontrado",
+            description=f"No se encontró el evento **{nombre_evento}**. Asegúrate de haberlo registrado con `!evento`.",
+            color=discord.Color.red()
+        ))
+        return
+
+    event = events_info[nombre_evento]
+    event_time = event["timestamp"]
+    current_time = datetime.utcnow()
+
+    if current_time > event_time + timedelta(minutes=20):
+        await ctx.send(embed=discord.Embed(
+            title="Tiempo Expirado",
+            description=f"El tiempo para justificar tu llegada tardía al evento **{nombre_evento}** ha expirado.",
+            color=discord.Color.red()
+        ))
+        return
+
+    nombre_usuario = None
+    for nombre, datos in user_data.items():
+        if datos.get("discord_id") == ctx.author.id:
+            nombre_usuario = nombre
+            break
+
+    if nombre_usuario is None:
+        await ctx.send(embed=discord.Embed(
+            title="No Vinculado",
+            description="No se encontró un nombre vinculado a tu usuario. Pide a un oficial que te vincule primero.",
+            color=discord.Color.red()
+        ))
+        return
+
+    if nombre_usuario in event["late_users"]:
+        await ctx.send(embed=discord.Embed(
+            title="Uso Duplicado",
+            description="Ya has justificado tu llegada tardía para este evento.",
+            color=discord.Color.red()
+        ))
+        return
+
+    if nombre_usuario not in event["linked_users"]:
+        await ctx.send(embed=discord.Embed(
+            title="No Necesitas Justificación",
+            description="Estabas vinculado al momento del evento y tus puntos ya fueron ajustados.",
+            color=discord.Color.red()
+        ))
+        return
+
+    puntaje = event["puntaje"]
+
+    if nombre_usuario not in user_data:
+        await ctx.send(embed=discord.Embed(
+            title="Usuario No Vinculado",
+            description="Tu usuario no está vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
+            color=discord.Color.red()
+        ))
+        return
+
+    user_data[nombre_usuario]["score"] += puntaje
+
+    event["late_users"].add(nombre_usuario)
+
+    guardar_datos()
+    guardar_eventos()
+
+    await ctx.send(embed=discord.Embed(
+        title="Llegada Tardía Justificada",
+        description=f"Se han sumado **{puntaje} DKP** al evento **{nombre_evento}** para ti, **{nombre_usuario}**.",
+        color=discord.Color.green()
+    ))
+
+############################
+# Tarea para Limpiar Eventos Expirados
+############################
+
+@tasks.loop(minutes=5)
+async def limpiar_eventos_expirados():
+    """
+    Limpia los eventos que han expirado (más de 20 minutos desde su creación).
+    """
+    global events_info
+    ahora = datetime.utcnow()
+    eventos_a_eliminar = [
+        evento for evento, info in events_info.items()
+        if ahora > info["timestamp"] + timedelta(minutes=20)
+    ]
+    for evento in eventos_a_eliminar:
+        del events_info[evento]
+    if eventos_a_eliminar:
+        guardar_eventos()
 
 ############################
 # Manejo de Errores       #
