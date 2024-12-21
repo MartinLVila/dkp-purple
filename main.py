@@ -6,9 +6,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-CANAL_ADMIN = os.getenv("CANAL_ADMIN")
-CANAL_AUSENCIAS = os.getenv("CANAL_AUSENCIAS")
-CANAL_CONSULTA = os.getenv("CANAL_CONSULTA")
+CANAL_ADMIN = int(os.getenv("CANAL_ADMIN"))
+CANAL_AUSENCIAS = int(os.getenv("CANAL_AUSENCIAS"))
+CANAL_CONSULTA = int(os.getenv("CANAL_CONSULTA"))
 ADMINS_IDS = set(map(int, os.getenv("ADMINS_IDS").split(',')))
 
 intents = discord.Intents.default()
@@ -28,6 +28,10 @@ def cargar_datos():
         try:
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
+                # Asegurarse de que cada usuario tenga el campo 'status'
+                for nombre, datos in data.items():
+                    if "status" not in datos:
+                        datos["status"] = "normal"
                 user_data = data
         except json.JSONDecodeError:
             user_data = {}
@@ -97,9 +101,13 @@ async def score(ctx, nombre: str = None):
             return
 
         puntos = user_data[nombre]["score"]
+        status = user_data[nombre].get("status", "normal")
+        estado = "VACACIONES" if status == "vacaciones" else "ACTIVO"
         color = discord.Color.green() if puntos >= 0 else discord.Color.red()
+
         embed = discord.Embed(title=f"DKP de {nombre}", color=color)
         embed.add_field(name="DKP", value=str(puntos), inline=True)
+        embed.add_field(name="Estado", value=estado, inline=True)
         await ctx.send(embed=embed)
     else:
         if not user_data:
@@ -108,11 +116,13 @@ async def score(ctx, nombre: str = None):
 
         all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
 
-        desc = "```\n{:<15} {:<10}\n".format("Nombre", "DKP")
-        desc += "-"*25 + "\n"
+        desc = "```\n{:<15} {:<10} {:<10}\n".format("Nombre", "DKP", "Estado")
+        desc += "-"*40 + "\n"
         for nombre_u, datos in all_users:
             puntos = datos["score"]
-            desc += "{:<15} {:<10}\n".format(nombre_u, str(puntos))
+            status = datos.get("status", "normal")
+            estado = "VACACIONES" if status == "vacaciones" else "ACTIVO"
+            desc += "{:<15} {:<10} {:<10}\n".format(nombre_u, str(puntos), estado)
         desc += "```"
 
         embed = discord.Embed(
@@ -123,7 +133,7 @@ async def score(ctx, nombre: str = None):
         await ctx.send(embed=embed)
 
 ############################
-# Solo Admins               #
+# Comandos Administrativos  #
 ############################
 
 @bot.command(name="evento")
@@ -160,6 +170,10 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     old_justificado = {nombre: (nombre_evento in datos["justificado"]) for nombre, datos in user_data.items()}
 
     for nombre, datos in user_data.items():
+        # Verificar si el usuario está en vacaciones
+        if datos.get("status", "normal") == "vacaciones":
+            continue  # Ignorar ajustes de DKP para este usuario
+
         justificado_evento = (nombre_evento in datos["justificado"])
 
         if nombre in usuarios_mencionados:
@@ -179,21 +193,18 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
 
     desc = "```\n"
-    desc += "{:<15} {:<12} {:<7} {:<8}\n".format("Nombre", "Estado", "Antes", "Después")
-    desc += "-"*50 + "\n"
+    desc += "{:<15} {:<10} {:<7} {:<8}\n".format("Nombre", "Estado", "Antes", "Después")
+    desc += "-"*40 + "\n"
     for nombre, datos in all_users:
         antes = old_scores.get(nombre, 0)
         despues = datos["score"]
-        justificado_prev = old_justificado.get(nombre, False)
 
-        if justificado_prev:
-            estado = "JUSTIFICADO"
-        elif nombre not in usuarios_mencionados:
-            estado = "NO ASISTIO"
+        if datos.get("status", "normal") == "vacaciones":
+            estado = "VACACIONES"
         else:
-            estado = "ASISTIO"
+            estado = ""  # Dejar en blanco si no está de vacaciones
 
-        desc += "{:<15} {:<12} {:<7} {:<8}\n".format(
+        desc += "{:<15} {:<10} {:<7} {:<8}\n".format(
             nombre, estado, str(antes), str(despues)
         )
     desc += "```"
@@ -223,24 +234,17 @@ async def vincular(ctx, member: discord.Member, nombre: str):
             color=discord.Color.red()
         ))
         return
-    
-    if ctx.channel.id != CANAL_ADMIN:
-        await ctx.send(embed=discord.Embed(
-            title="Canal Incorrecto",
-            description=f"Este comando solo puede usarse en el canal designado para administración.",
-            color=discord.Color.red()
-        ))
-        return
 
     user_data[nombre] = {
         "discord_id": member.id,
         "score": user_data.get(nombre, {}).get("score", 0),
-        "justificado": user_data.get(nombre, {}).get("justificado", [])
+        "justificado": user_data.get(nombre, {}).get("justificado", []),
+        "status": "normal"  # Estado por defecto
     }
     guardar_datos()
     await ctx.send(embed=discord.Embed(
         title="Vinculación completada",
-        description=f"El usuario {member.mention} ha sido vinculado al nombre **{nombre}**",
+        description=f"El usuario {member.mention} ha sido vinculado al nombre **{nombre}** con estado **ACTIVO**.",
         color=discord.Color.green()
     ))
 
@@ -250,14 +254,6 @@ async def borrarusuario(ctx, nombre: str):
         await ctx.send(embed=discord.Embed(
             title="Permiso Denegado",
             description="No tienes permisos para usar este comando.",
-            color=discord.Color.red()
-        ))
-        return
-        
-    if ctx.channel.id != CANAL_ADMIN:
-        await ctx.send(embed=discord.Embed(
-            title="Canal Incorrecto",
-            description=f"Este comando solo puede usarse en el canal designado para administración.",
             color=discord.Color.red()
         ))
         return
@@ -291,14 +287,6 @@ async def sumardkp(ctx, nombre: str, puntos_a_sumar: int):
         ))
         return
 
-    if ctx.channel.id != CANAL_ADMIN:
-        await ctx.send(embed=discord.Embed(
-            title="Canal Incorrecto",
-            description=f"Este comando solo puede usarse en el canal designado para administración.",
-            color=discord.Color.red()
-        ))
-        return
-
     if nombre not in user_data:
         await ctx.send(embed=discord.Embed(
             title="Usuario no encontrado",
@@ -316,20 +304,11 @@ async def sumardkp(ctx, nombre: str, puntos_a_sumar: int):
     ))
 
 @bot.command(name="restardkp")
-@commands.has_permissions(administrator=True)
 async def restardkp(ctx, nombre: str, puntos_a_restar: int):
     if not es_admin(ctx):
         await ctx.send(embed=discord.Embed(
             title="Permiso Denegado",
             description="No tienes permisos para usar este comando.",
-            color=discord.Color.red()
-        ))
-        return
-
-    if ctx.channel.id != CANAL_ADMIN:
-        await ctx.send(embed=discord.Embed(
-            title="Canal Incorrecto",
-            description=f"Este comando solo puede usarse en el canal designado para administración.",
             color=discord.Color.red()
         ))
         return
@@ -351,7 +330,63 @@ async def restardkp(ctx, nombre: str, puntos_a_restar: int):
     ))
 
 ############################
-# Manejo de errores       #
+# Comandos para Gestionar Vacaciones
+############################
+
+@bot.command(name="ausencia_vacaciones")
+async def ausencia_vacaciones(ctx, nombre: str):
+    if not es_admin(ctx):
+        await ctx.send(embed=discord.Embed(
+            title="Permiso Denegado",
+            description="No tienes permisos para usar este comando.",
+            color=discord.Color.red()
+        ))
+        return
+
+    if nombre not in user_data:
+        await ctx.send(embed=discord.Embed(
+            title="Usuario no encontrado",
+            description=f"No se encontró el usuario con nombre **{nombre}**.",
+            color=discord.Color.red()
+        ))
+        return
+
+    user_data[nombre]["status"] = "vacaciones"
+    guardar_datos()
+    await ctx.send(embed=discord.Embed(
+        title="Estado Actualizado",
+        description=f"El usuario **{nombre}** ha sido marcado como **VACACIONES**.",
+        color=discord.Color.yellow()
+    ))
+
+@bot.command(name="ausencia_volvio")
+async def ausencia_volvio(ctx, nombre: str):
+    if not es_admin(ctx):
+        await ctx.send(embed=discord.Embed(
+            title="Permiso Denegado",
+            description="No tienes permisos para usar este comando.",
+            color=discord.Color.red()
+        ))
+        return
+
+    if nombre not in user_data:
+        await ctx.send(embed=discord.Embed(
+            title="Usuario no encontrado",
+            description=f"No se encontró el usuario con nombre **{nombre}**.",
+            color=discord.Color.red()
+        ))
+        return
+
+    user_data[nombre]["status"] = "normal"
+    guardar_datos()
+    await ctx.send(embed=discord.Embed(
+        title="Estado Actualizado",
+        description=f"El usuario **{nombre}** ha vuelto de **VACACIONES** y está nuevamente en estado **ACTIVO**.",
+        color=discord.Color.green()
+    ))
+
+############################
+# Manejo de Errores       #
 ############################
 @bot.event
 async def on_command_error(ctx, error):
