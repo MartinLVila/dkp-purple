@@ -5,6 +5,7 @@ import logging
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+from functools import wraps
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -54,13 +55,11 @@ def cargar_datos():
                     else:
                         datos["absence_until"] = None
                     
-
                     if "justified_events" in datos:
                         datos["justified_events"] = set(datos["justified_events"])
                     else:
                         datos["justified_events"] = set()
                     
- 
                     if "justificado" not in datos or not isinstance(datos["justificado"], list):
                         datos["justificado"] = []
                     
@@ -119,6 +118,7 @@ def guardar_eventos():
         }
         json.dump(serializable_events, f, indent=4)
 
+
 @bot.event
 async def on_ready():
     cargar_datos()
@@ -129,13 +129,50 @@ async def on_ready():
     limpiar_absences_expiradas.start()
     limpiar_eventos_justificados_expirados.start()
 
+
 def es_admin(ctx):
     return (ctx.author.id in ADMINS_IDS)
+
+############################
+# Decorador de Verificación
+############################
+def requiere_vinculacion(comando_admin=False):
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(ctx, *args, **kwargs):
+            usuario = ctx.author
+            nombre_usuario = None
+            for nombre, datos in user_data.items():
+                if datos.get("discord_id") == usuario.id:
+                    nombre_usuario = nombre
+                    break
+
+            if comando_admin:
+                if usuario.id not in ADMINS_IDS:
+                    await ctx.send(embed=discord.Embed(
+                        title="Permiso Denegado",
+                        description="No tienes permisos para usar este comando.",
+                        color=discord.Color.red()
+                    ))
+                    return
+            else:
+                if nombre_usuario is None and usuario.id not in ADMINS_IDS:
+                    await ctx.send(embed=discord.Embed(
+                        title="No Vinculado",
+                        description="No estás vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
+                        color=discord.Color.red()
+                    ))
+                    return
+
+            return await func(ctx, *args, **kwargs)
+        return wrapper
+    return decorator
 
 ############################
 # Comando para ausencia con duración o por evento
 ############################
 @bot.command(name="ausencia")
+@requiere_vinculacion()
 async def ausencia(ctx, *args):
     """
     Permite justificar una ausencia.
@@ -258,6 +295,7 @@ async def ausencia(ctx, *args):
             return
 
 @bot.command(name="dkp")
+@requiere_vinculacion()
 async def score(ctx, nombre: str = None):
     if nombre:
         member = ctx.message.mentions[0] if ctx.message.mentions else None
@@ -325,20 +363,26 @@ async def score(ctx, nombre: str = None):
 
 @bot.command(name="evento")
 async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
+    global events_info, user_data
+
+    logger.info(f"Comando !evento invocado por {ctx.author} para el evento '{nombre_evento}' con puntaje {puntaje} y usuarios {usuarios_mencionados}")
+
     if not es_admin(ctx):
         await ctx.send(embed=discord.Embed(
             title="Permiso Denegado",
             description="No tienes permisos para usar este comando.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Usuario {ctx.author} intentó usar !evento sin permisos.")
         return
 
     if puntaje <= 0:
         await ctx.send(embed=discord.Embed(
             title="DKP inválido",
-            description="El dkp debe ser un número positivo.",
+            description="El DKP debe ser un número positivo.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Usuario {ctx.author} intentó crear un evento con puntaje no positivo: {puntaje}.")
         return
 
     usuarios_mencionados = list(usuarios_mencionados)
@@ -347,47 +391,55 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     if 'noresta' in usuarios_mencionados_lower:
         noresta = True
         usuarios_mencionados = [u for u in usuarios_mencionados if u.lower() != 'noresta']
+        logger.info(f"'noresta' activado para el evento '{nombre_evento}'.")
 
     usuarios_mencionados = set(usuarios_mencionados)
 
     for nombre, datos in user_data.items():
         if "justificado" not in datos or not isinstance(datos["justificado"], list):
             user_data[nombre]["justificado"] = []
+            logger.debug(f"'justificado' inicializado para el usuario '{nombre}'.")
 
     no_encontrados = []
 
     for nombre in usuarios_mencionados:
         if nombre not in user_data:
             no_encontrados.append(nombre)
+            logger.warning(f"Usuario mencionado '{nombre}' no encontrado en 'user_data'.")
 
     old_scores = {nombre: datos["score"] for nombre, datos in user_data.items()}
     old_justificado = {nombre: (nombre_evento in datos["justificado"]) for nombre, datos in user_data.items()}
 
     event_time = datetime.utcnow()
     linked_users_at_event = set(user_data.keys())
+
     events_info[nombre_evento] = {
         "timestamp": event_time,
-        "linked_users": linked_users_at_event,
+        "linked_users": set(linked_users_at_event),
         "late_users": set(),
         "puntaje": puntaje,
         "penalties": {}
     }
+    logger.info(f"Evento '{nombre_evento}' agregado a 'events_info'.")
 
     if noresta:
+        logger.info(f"Aplicando lógica 'noresta' para el evento '{nombre_evento}'.")
         for nombre, datos in user_data.items():
             if datos.get("status", "normal") == "vacaciones":
+                logger.debug(f"Usuario '{nombre}' está de vacaciones. Omitiendo.")
                 continue
 
             if nombre in usuarios_mencionados:
                 datos["score"] += puntaje
-
+                logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. DKP incrementado en {puntaje}.")
                 if nombre_evento in datos.get("justified_events", set()):
                     datos["justified_events"].remove(nombre_evento)
-            else:
-                pass
+                    logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para el usuario '{nombre}'.")
     else:
+        logger.info(f"Aplicando lógica estándar para el evento '{nombre_evento}'.")
         for nombre, datos in user_data.items():
             if datos.get("status", "normal") == "vacaciones":
+                logger.debug(f"Usuario '{nombre}' está de vacaciones. Omitiendo.")
                 continue
 
             absence_until = datos.get("absence_until")
@@ -397,20 +449,43 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
 
             if nombre in usuarios_mencionados:
                 datos["score"] += puntaje
-
-                if justificado_by_event:
+                logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. DKP incrementado en {puntaje}.")
+                if justificado_evento:
                     datos["justified_events"].remove(nombre_evento)
+                    logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para el usuario '{nombre}'.")
             else:
                 if justificado_evento:
                     datos["score"] -= puntaje
-                    if justificado_by_event:
+                    logger.debug(f"Usuario '{nombre}' justificado para el evento '{nombre_evento}'. DKP decrementado en {puntaje}.")
+                    if nombre_evento in datos.get("justified_events", set()):
                         datos["justified_events"].remove(nombre_evento)
+                        logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para el usuario '{nombre}'.")
                 else:
                     datos["score"] -= (puntaje * 2)
-                    events_info[nombre_evento]["penalties"][nombre] = puntaje * 2
+                    if nombre_evento in events_info:
+                        events_info[nombre_evento]["penalties"][nombre] = puntaje * 2
+                        logger.debug(f"Penalización de {puntaje * 2} DKP asignada a '{nombre}' para el evento '{nombre_evento}'.")
+                    else:
+                        logger.error(f"Evento '{nombre_evento}' no existe en 'events_info' al asignar penalización.")
+                        await ctx.send(embed=discord.Embed(
+                            title="Error Interno",
+                            description="Ocurrió un error al asignar penalizaciones. Por favor, contacta al administrador.",
+                            color=discord.Color.red()
+                        ))
+                        return
 
-    guardar_datos()
-    guardar_eventos()
+    try:
+        guardar_datos()
+        guardar_eventos()
+        logger.info(f"Datos y eventos guardados correctamente tras el comando '!evento {nombre_evento}'.")
+    except Exception as e:
+        logger.error(f"Error al guardar datos/eventos tras el comando '!evento {nombre_evento}': {e}")
+        await ctx.send(embed=discord.Embed(
+            title="Error Interno",
+            description="Ocurrió un error al guardar los datos del evento. Por favor, contacta al administrador.",
+            color=discord.Color.red()
+        ))
+        return
 
     all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
 
@@ -445,6 +520,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
         description=desc
     )
     await ctx.send(embed=embed)
+    logger.info(f"Embed para el evento '{nombre_evento}' enviado a {ctx.author}.")
 
     if no_encontrados:
         mensaje_no_encontrados = "No se encontraron los siguientes usuarios:\n"
@@ -454,17 +530,11 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
             description=mensaje_no_encontrados,
             color=discord.Color.red()
         ))
+        logger.warning(f"Usuarios no encontrados al crear el evento '{nombre_evento}': {no_encontrados}")
 
 @bot.command(name="vincular")
+@requiere_vinculacion(comando_admin=True)
 async def vincular(ctx, member: discord.Member, nombre: str):
-    if not es_admin(ctx):
-        await ctx.send(embed=discord.Embed(
-            title="Permiso Denegado",
-            description="No tienes permisos para usar este comando.",
-            color=discord.Color.red()
-        ))
-        return
-
     user_data[nombre] = {
         "discord_id": member.id,
         "score": user_data.get(nombre, {}).get("score", 0),
@@ -481,15 +551,8 @@ async def vincular(ctx, member: discord.Member, nombre: str):
     ))
 
 @bot.command(name="borrarusuario")
+@requiere_vinculacion(comando_admin=True)
 async def borrarusuario(ctx, nombre: str):
-    if not es_admin(ctx):
-        await ctx.send(embed=discord.Embed(
-            title="Permiso Denegado",
-            description="No tienes permisos para usar este comando.",
-            color=discord.Color.red()
-        ))
-        return
-
     if nombre not in user_data:
         await ctx.send(embed=discord.Embed(
             title="Usuario no encontrado",
@@ -510,15 +573,8 @@ async def borrarusuario(ctx, nombre: str):
     ))
 
 @bot.command(name="sumardkp")
+@requiere_vinculacion(comando_admin=True)
 async def sumardkp(ctx, nombre: str, puntos_a_sumar: int):
-    if not es_admin(ctx):
-        await ctx.send(embed=discord.Embed(
-            title="Permiso Denegado",
-            description="No tienes permisos para usar este comando.",
-            color=discord.Color.red()
-        ))
-        return
-
     if nombre not in user_data:
         await ctx.send(embed=discord.Embed(
             title="Usuario no encontrado",
@@ -536,28 +592,49 @@ async def sumardkp(ctx, nombre: str, puntos_a_sumar: int):
     ))
 
 @bot.command(name="restardkp")
-async def restardkp(ctx, nombre: str, puntos_a_restar: int):
+async def restardkp(ctx, member: discord.Member, puntos_a_restar: int):
+    global user_data
+
     if not es_admin(ctx):
         await ctx.send(embed=discord.Embed(
             title="Permiso Denegado",
             description="No tienes permisos para usar este comando.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Usuario {ctx.author} intentó usar !restardkp sin permisos.")
         return
 
-    if nombre not in user_data:
+    nombre_usuario = None
+    for nombre, datos in user_data.items():
+        if datos.get("discord_id") == member.id:
+            nombre_usuario = nombre
+            break
+
+    if nombre_usuario is None:
         await ctx.send(embed=discord.Embed(
-            title="Usuario no encontrado",
-            description=f"No se encontró el usuario con nombre **{nombre}**.",
+            title="Usuario no Vinculado",
+            description="El usuario mencionado no está vinculado al sistema DKP.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Usuario mencionado '{member}' no está vinculado en 'user_data'.")
         return
 
-    user_data[nombre]["score"] -= puntos_a_restar
+    if puntos_a_restar <= 0:
+        await ctx.send(embed=discord.Embed(
+            title="DKP Inválido",
+            description="La cantidad de DKP a restar debe ser un número positivo.",
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Intento de restar DKP no válido: {puntos_a_restar} a '{nombre_usuario}'.")
+        return
+
+    user_data[nombre_usuario]["score"] -= puntos_a_restar
     guardar_datos()
+    logger.info(f"Se han restado {puntos_a_restar} DKP a '{nombre_usuario}' (ID Discord: {member.id}).")
+    
     await ctx.send(embed=discord.Embed(
         title="DKP Actualizado",
-        description=f"Se han restado {puntos_a_restar} DKP a **{nombre}**. Total: {user_data[nombre]['score']}",
+        description=f"Se han restado **{puntos_a_restar} DKP** a **{nombre_usuario}**. Total: **{user_data[nombre_usuario]['score']} DKP**.",
         color=discord.Color.orange()
     ))
 
@@ -566,15 +643,8 @@ async def restardkp(ctx, nombre: str, puntos_a_restar: int):
 ############################
 
 @bot.command(name="ausencia_vacaciones")
+@requiere_vinculacion(comando_admin=True)
 async def ausencia_vacaciones(ctx, nombre: str):
-    if not es_admin(ctx):
-        await ctx.send(embed=discord.Embed(
-            title="Permiso Denegado",
-            description="No tienes permisos para usar este comando.",
-            color=discord.Color.red()
-        ))
-        return
-
     if nombre not in user_data:
         await ctx.send(embed=discord.Embed(
             title="Usuario no encontrado",
@@ -592,15 +662,8 @@ async def ausencia_vacaciones(ctx, nombre: str):
     ))
 
 @bot.command(name="ausencia_volvio")
+@requiere_vinculacion(comando_admin=True)
 async def ausencia_volvio(ctx, nombre: str):
-    if not es_admin(ctx):
-        await ctx.send(embed=discord.Embed(
-            title="Permiso Denegado",
-            description="No tienes permisos para usar este comando.",
-            color=discord.Color.red()
-        ))
-        return
-
     if nombre not in user_data:
         await ctx.send(embed=discord.Embed(
             title="Usuario no encontrado",
@@ -624,6 +687,7 @@ async def ausencia_volvio(ctx, nombre: str):
 ############################
 
 @bot.command(name="llegue_tarde")
+@requiere_vinculacion()
 async def llegue_tarde(ctx, nombre_evento: str):
     """
     Permite a un usuario justificar su llegada tardía a un evento.
@@ -788,6 +852,7 @@ async def on_command_error(ctx, error):
         await ctx.send("Ocurrió un error al procesar el comando.")
         logger.error(f"Error en comando {ctx.command} usado por {ctx.author} (ID: {ctx.author.id}): {error}")
         print(f"Error: {error}")
+
 
 @bot.event
 async def on_command(ctx):
