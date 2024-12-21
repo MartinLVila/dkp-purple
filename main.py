@@ -1,12 +1,11 @@
 import os
 import discord
 import json
-import logging  # Importar el módulo de logging
+import logging
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
-# Carga las variables de entorno desde el archivo .env
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 CANAL_ADMIN = int(os.getenv("CANAL_ADMIN"))
@@ -15,23 +14,20 @@ CANAL_TARDE = int(os.getenv("CANAL_TARDE"))
 CANAL_CONSULTA = int(os.getenv("CANAL_CONSULTA"))
 ADMINS_IDS = set(map(int, os.getenv("ADMINS_IDS").split(',')))
 
-# Configuración del logging
 logging.basicConfig(
-    filename='bot_commands.log',  # Archivo donde se almacenarán los logs
-    level=logging.INFO,            # Nivel de severidad de los logs
-    format='%(asctime)s:%(levelname)s:%(name)s: %(message)s'  # Formato de los logs
+    filename='bot_commands.log',
+    level=logging.INFO,
+    format='%(asctime)s:%(levelname)s:%(name)s: %(message)s'
 )
 
 logger = logging.getLogger('bot_commands')
 
-# Configuración de los intents de Discord
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-# Inicializa el bot
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 DATA_FILE = "scores.json"
@@ -39,7 +35,6 @@ EVENTS_FILE = "events.json"
 user_data = {}
 events_info = {}
 
-# Función para cargar datos de usuarios
 def cargar_datos():
     global user_data
     if os.path.exists(DATA_FILE):
@@ -75,7 +70,6 @@ def cargar_datos():
     else:
         user_data = {}
 
-# Función para guardar datos de usuarios
 def guardar_datos():
     serializable_data = {}
     for nombre, datos in user_data.items():
@@ -94,7 +88,6 @@ def guardar_datos():
     with open(DATA_FILE, "w") as f:
         json.dump(serializable_data, f, indent=4)
 
-# Función para cargar eventos
 def cargar_eventos():
     global events_info
     if os.path.exists(EVENTS_FILE):
@@ -112,7 +105,6 @@ def cargar_eventos():
     else:
         events_info = {}
 
-# Función para guardar eventos
 def guardar_eventos():
     with open(EVENTS_FILE, "w") as f:
         serializable_events = {
@@ -127,7 +119,6 @@ def guardar_eventos():
         }
         json.dump(serializable_events, f, indent=4)
 
-# Evento cuando el bot está listo
 @bot.event
 async def on_ready():
     cargar_datos()
@@ -138,7 +129,6 @@ async def on_ready():
     limpiar_absences_expiradas.start()
     limpiar_eventos_justificados_expirados.start()
 
-# Función para verificar si un usuario es admin
 def es_admin(ctx):
     return (ctx.author.id in ADMINS_IDS)
 
