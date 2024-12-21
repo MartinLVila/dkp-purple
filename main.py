@@ -36,6 +36,23 @@ def cargar_datos():
                 for nombre, datos in data.items():
                     if "status" not in datos:
                         datos["status"] = "normal"
+                    
+                    if "absence_until" in datos and datos["absence_until"]:
+                        try:
+                            datos["absence_until"] = datetime.strptime(datos["absence_until"], "%Y-%m-%dT%H:%M:%S.%f")
+                        except ValueError:
+                            datos["absence_until"] = None
+                    else:
+                        datos["absence_until"] = None
+                    
+                    if "justified_events" in datos:
+                        datos["justified_events"] = set(datos["justified_events"])
+                    else:
+                        datos["justified_events"] = set()
+                    
+                    if "justificado" not in datos or not isinstance(datos["justificado"], list):
+                        datos["justificado"] = []
+                    
                 user_data = data
         except json.JSONDecodeError:
             user_data = {}
@@ -43,8 +60,22 @@ def cargar_datos():
         user_data = {}
 
 def guardar_datos():
+    serializable_data = {}
+    for nombre, datos in user_data.items():
+        serializable_data[nombre] = datos.copy()
+        
+        if "absence_until" in serializable_data[nombre] and serializable_data[nombre]["absence_until"]:
+            serializable_data[nombre]["absence_until"] = serializable_data[nombre]["absence_until"].isoformat()
+        else:
+            serializable_data[nombre]["absence_until"] = None
+        
+        if "justified_events" in serializable_data[nombre]:
+            serializable_data[nombre]["justified_events"] = list(serializable_data[nombre]["justified_events"])
+        else:
+            serializable_data[nombre]["justified_events"] = []
+        
     with open(DATA_FILE, "w") as f:
-        json.dump(user_data, f, indent=4)
+        json.dump(serializable_data, f, indent=4)
 
 def cargar_eventos():
     global events_info
@@ -81,29 +112,37 @@ async def on_ready():
     cargar_eventos()
     print(f"Bot conectado como {bot.user}")
     limpiar_eventos_expirados.start()
+    limpiar_absences_expiradas.start()
+    limpiar_eventos_justificados_expirados.start()
 
 def es_admin(ctx):
     return (ctx.author.id in ADMINS_IDS)
 
 ############################
-# Comando para ausencia en un evento (justificado)
+# Comando para ausencia con duración o por evento
 ############################
 @bot.command(name="ausencia")
-async def ausencia(ctx, nombre_usuario: str = None, nombre_evento: str = None):
+async def ausencia(ctx, *args):
     """
     Permite justificar una ausencia.
-    - Usuarios Regulares: !ausencia nombreevento
-    - Administradores: !ausencia nombreusuario nombreevento
+    - Usuarios Regulares:
+        - Por días: `!ausencia <dias>`
+        - Por evento: `!ausencia <nombre_evento>`
+    - Administradores:
+        - Por días: `!ausencia <nombre_usuario> <dias>`
+        - Por evento: `!ausencia <nombre_usuario> <nombre_evento>`
     """
-
     if es_admin(ctx):
-        if nombre_usuario is None or nombre_evento is None:
+        if len(args) != 2:
             await ctx.send(embed=discord.Embed(
                 title="Uso Incorrecto",
-                description="Uso correcto para administradores: `!ausencia nombreusuario nombreevento`",
+                description="Uso correcto para administradores:\n`!ausencia nombreusuario dias`\n`!ausencia nombreusuario nombreevento`",
                 color=discord.Color.red()
             ))
             return
+
+        nombre_usuario = args[0]
+        segundo_arg = args[1]
 
         if nombre_usuario not in user_data:
             await ctx.send(embed=discord.Embed(
@@ -112,56 +151,94 @@ async def ausencia(ctx, nombre_usuario: str = None, nombre_evento: str = None):
                 color=discord.Color.red()
             ))
             return
+
+        try:
+            dias = int(segundo_arg)
+            if dias < 1 or dias > 3:
+                raise ValueError
+            absence_until = datetime.utcnow() + timedelta(days=dias)
+            user_data[nombre_usuario]["absence_until"] = absence_until
+            guardar_datos()
+            await ctx.send(embed=discord.Embed(
+                title="Ausencia Justificada",
+                description=f"La ausencia para los próximos **{dias} día(s)** ha sido justificada para el usuario **{nombre_usuario}**.",
+                color=discord.Color.yellow()
+            ))
+            return
+        except ValueError:
+            nombre_evento = segundo_arg
+            user_data[nombre_usuario]["justified_events"].add(nombre_evento)
+            guardar_datos()
+            await ctx.send(embed=discord.Embed(
+                title="Ausencia Justificada",
+                description=f"La ausencia para el evento **{nombre_evento}** ha sido justificada para el usuario **{nombre_usuario}**.",
+                color=discord.Color.yellow()
+            ))
+            return
+
     else:
-        if nombre_evento is None:
+        if len(args) != 1:
             await ctx.send(embed=discord.Embed(
                 title="Uso Incorrecto",
-                description="Uso correcto para usuarios: `!ausencia nombreevento`",
+                description="Uso correcto para usuarios:\n`!ausencia dias`\n`!ausencia nombreevento`",
                 color=discord.Color.red()
             ))
             return
-        nombre_usuario = None
-        for nombre, datos in user_data.items():
-            if datos.get("discord_id") == ctx.author.id:
-                nombre_usuario = nombre
-                break
-        if nombre_usuario is None:
+
+        primer_arg = args[0]
+
+        try:
+            dias = int(primer_arg)
+            if dias < 1 or dias > 3:
+                raise ValueError
+            nombre_usuario = None
+            for nombre, datos in user_data.items():
+                if datos.get("discord_id") == ctx.author.id:
+                    nombre_usuario = nombre
+                    break
+
+            if nombre_usuario is None:
+                await ctx.send(embed=discord.Embed(
+                    title="No Vinculado",
+                    description="No se encontró un nombre vinculado a tu usuario. Pide a un oficial que te vincule primero.",
+                    color=discord.Color.red()
+                ))
+                return
+
+            absence_until = datetime.utcnow() + timedelta(days=dias)
+            user_data[nombre_usuario]["absence_until"] = absence_until
+            guardar_datos()
+
             await ctx.send(embed=discord.Embed(
-                title="No Vinculado",
-                description="No se encontró un nombre vinculado a tu usuario. Pide a un oficial que te vincule primero.",
-                color=discord.Color.red()
+                title="Ausencia Justificada",
+                description=f"Has quedado justificado por los próximos **{dias} día(s)**, **{nombre_usuario}**.",
+                color=discord.Color.yellow()
             ))
             return
+        except ValueError:
+            nombre_evento = primer_arg
+            nombre_usuario = None
+            for nombre, datos in user_data.items():
+                if datos.get("discord_id") == ctx.author.id:
+                    nombre_usuario = nombre
+                    break
 
-    if es_admin(ctx) and nombre_usuario:
-        target_user = nombre_usuario
-    else:
-        target_user = nombre_usuario
+            if nombre_usuario is None:
+                await ctx.send(embed=discord.Embed(
+                    title="No Vinculado",
+                    description="No se encontró un nombre vinculado a tu usuario. Pide a un oficial que te vincule primero.",
+                    color=discord.Color.red()
+                ))
+                return
 
-    if target_user not in user_data:
-        await ctx.send(embed=discord.Embed(
-            title="Usuario no encontrado",
-            description=f"No se encontró el usuario con nombre **{target_user}**.",
-            color=discord.Color.red()
-        ))
-        return
-
-    if nombre_evento not in user_data[target_user].get("justificado", []):
-        user_data[target_user].setdefault("justificado", []).append(nombre_evento)
-
-    guardar_datos()
-    if es_admin(ctx):
-        await ctx.send(embed=discord.Embed(
-            title="Ausencia Justificada",
-            description=f"La ausencia para el evento **{nombre_evento}** ha sido justificada para el usuario **{target_user}**.",
-            color=discord.Color.yellow()
-        ))
-    else:
-        await ctx.send(embed=discord.Embed(
-            title="Ausencia Justificada",
-            description=f"Has quedado justificado para el evento **{nombre_evento}**, {target_user}.",
-            color=discord.Color.yellow()
-        ))
+            user_data[nombre_usuario]["justified_events"].add(nombre_evento)
+            guardar_datos()
+            await ctx.send(embed=discord.Embed(
+                title="Ausencia Justificada",
+                description=f"Has quedado justificado para el evento **{nombre_evento}**, **{nombre_usuario}**.",
+                color=discord.Color.yellow()
+            ))
+            return
 
 @bot.command(name="dkp")
 async def score(ctx, nombre: str = None):
@@ -193,7 +270,6 @@ async def score(ctx, nombre: str = None):
                 ))
                 return
 
-        # Obtener DKP y Estado
         puntos = user_data[nombre_usuario]["score"]
         status = user_data[nombre_usuario].get("status", "normal")
         estado = "VACACIONES" if status == "vacaciones" else "ACTIVO"
@@ -229,7 +305,6 @@ async def score(ctx, nombre: str = None):
 ############################
 # Comandos Administrativos  #
 ############################
-
 @bot.command(name="evento")
 async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     if not es_admin(ctx):
@@ -296,17 +371,22 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
             if datos.get("status", "normal") == "vacaciones":
                 continue
 
-            justificado_evento = (nombre_evento in datos["justificado"])
+            absence_until = datos.get("absence_until")
+            justified_by_days = absence_until and event_time <= absence_until
+            justified_by_event = nombre_evento in datos.get("justified_events", set())
+            justificado_evento = justified_by_days or justified_by_event
 
             if nombre in usuarios_mencionados:
                 datos["score"] += puntaje
 
                 if justificado_evento:
-                    datos["justificado"].remove(nombre_evento)
+                    if justificado_by_event:
+                        datos["justified_events"].remove(nombre_evento)
             else:
                 if justificado_evento:
                     datos["score"] -= puntaje
-                    datos["justificado"].remove(nombre_evento)
+                    if justificado_by_event:
+                        datos["justified_events"].remove(nombre_evento)
                 else:
                     datos["score"] -= (puntaje * 2)
 
@@ -316,23 +396,26 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
 
     desc = "```\n"
-    desc += "{:<15} {:<12} {:<10} {:<10}\n".format("Nombre", "Estado", "Antes", "Después")
-    desc += "-"*50 + "\n"
+    desc += "{:<15} {:<15} {:<10} {:<10}\n".format("Nombre", "Estado", "Antes", "Después")
+    desc += "-"*55 + "\n"
     for nombre, datos in all_users:
         antes = old_scores.get(nombre, 0)
         despues = datos["score"]
 
-        # Determinar el estado para este evento
         if datos.get("status", "normal") == "vacaciones":
             estado = "VACACIONES"
-        elif nombre in usuarios_mencionados:
-            estado = "ASISTIO"
-        elif nombre_evento in datos.get("justificado", []):
-            estado = "JUSTIFICADO"
         else:
-            estado = "NO ASISTIO"
+            absence_until = datos.get("absence_until")
+            justified_by_days = absence_until and event_time <= absence_until
+            justified_by_event = nombre_evento in datos.get("justified_events", set())
+            if justified_by_days or justified_by_event:
+                estado = "JUSTIFICADO"
+            elif nombre in usuarios_mencionados:
+                estado = "ASISTIÓ"
+            else:
+                estado = "NO ASISTIÓ"
 
-        desc += "{:<15} {:<12} {:<10} {:<10}\n".format(
+        desc += "{:<15} {:<15} {:<10} {:<10}\n".format(
             nombre, estado, str(antes), str(despues)
         )
     desc += "```"
@@ -367,7 +450,9 @@ async def vincular(ctx, member: discord.Member, nombre: str):
         "discord_id": member.id,
         "score": user_data.get(nombre, {}).get("score", 0),
         "justificado": user_data.get(nombre, {}).get("justificado", []),
-        "status": "normal"  # Estado por defecto
+        "justified_events": set(user_data.get(nombre, {}).get("justified_events", [])),
+        "status": "normal",
+        "absence_until": None
     }
     guardar_datos()
     await ctx.send(embed=discord.Embed(
@@ -460,7 +545,6 @@ async def restardkp(ctx, nombre: str, puntos_a_restar: int):
 ############################
 # Comandos para Gestionar Vacaciones
 ############################
-
 @bot.command(name="ausencia_vacaciones")
 async def ausencia_vacaciones(ctx, nombre: str):
     if not es_admin(ctx):
@@ -506,6 +590,8 @@ async def ausencia_volvio(ctx, nombre: str):
         return
 
     user_data[nombre]["status"] = "normal"
+    user_data[nombre]["absence_until"] = None
+    user_data[nombre]["justified_events"].clear()
     guardar_datos()
     await ctx.send(embed=discord.Embed(
         title="Estado Actualizado",
@@ -516,12 +602,11 @@ async def ausencia_volvio(ctx, nombre: str):
 ############################
 # Comando !llegue_tarde
 ############################
-
 @bot.command(name="llegue_tarde")
 async def llegue_tarde(ctx, nombre_evento: str):
     """
     Permite a un usuario justificar su llegada tardía a un evento.
-    - Solo se puede usar dentro de los 10 minutos posteriores a que se emitió el comando !evento NOMBREEVENTO.
+    - Solo se puede usar dentro de los 20 minutos posteriores a que se emitió el comando !evento NOMBREEVENTO.
     - Solo se puede usar una vez por usuario por evento en el canal de ausencias.
     """
 
@@ -607,9 +692,8 @@ async def llegue_tarde(ctx, nombre_evento: str):
     ))
 
 ############################
-# Tarea para Limpiar Eventos Expirados
+# Tareas para Limpieza    #
 ############################
-
 @tasks.loop(minutes=5)
 async def limpiar_eventos_expirados():
     """
@@ -626,6 +710,40 @@ async def limpiar_eventos_expirados():
     if eventos_a_eliminar:
         guardar_eventos()
 
+@tasks.loop(minutes=5)
+async def limpiar_absences_expiradas():
+    """
+    Limpia las ausencias que han expirado.
+    """
+    global user_data
+    ahora = datetime.utcnow()
+    modificados = False
+    for nombre, datos in user_data.items():
+        if "absence_until" in datos and datos["absence_until"]:
+            if ahora > datos["absence_until"]:
+                user_data[nombre]["absence_until"] = None
+                modificados = True
+    if modificados:
+        guardar_datos()
+
+@tasks.loop(minutes=5)
+async def limpiar_eventos_justificados_expirados():
+    """
+    Limpia los eventos justificados específicos que ya han ocurrido.
+    """
+    global user_data, events_info
+    ahora = datetime.utcnow()
+    modificados = False
+    for nombre_evento, info in events_info.items():
+        evento_time = info["timestamp"]
+        if ahora > evento_time + timedelta(minutes=20):
+            for nombre in info["linked_users"]:
+                if nombre in user_data and nombre_evento in user_data[nombre].get("justified_events", set()):
+                    user_data[nombre]["justified_events"].remove(nombre_evento)
+                    modificados = True
+    if modificados:
+        guardar_datos()
+
 ############################
 # Manejo de Errores       #
 ############################
@@ -635,6 +753,8 @@ async def on_command_error(ctx, error):
         await ctx.send("Faltan argumentos para este comando.")
     elif isinstance(error, commands.MissingPermissions):
         await ctx.send("No tienes permisos para usar este comando.")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send("Tipo de argumento inválido.")
     else:
         await ctx.send("Ocurrió un error al procesar el comando.")
         print(f"Error: {error}")
