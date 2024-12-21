@@ -45,11 +45,13 @@ def cargar_datos():
                     else:
                         datos["absence_until"] = None
                     
+
                     if "justified_events" in datos:
                         datos["justified_events"] = set(datos["justified_events"])
                     else:
                         datos["justified_events"] = set()
                     
+ 
                     if "justificado" not in datos or not isinstance(datos["justificado"], list):
                         datos["justificado"] = []
                     
@@ -87,6 +89,7 @@ def cargar_eventos():
                     info["timestamp"] = datetime.strptime(info["timestamp"], "%Y-%m-%dT%H:%M:%S.%f")
                     info["linked_users"] = set(info["linked_users"])
                     info["late_users"] = set(info["late_users"])
+                    info["penalties"] = info.get("penalties", {})
                 events_info = data
         except json.JSONDecodeError:
             events_info = {}
@@ -100,7 +103,8 @@ def guardar_eventos():
                 "timestamp": info["timestamp"].isoformat(),
                 "linked_users": list(info["linked_users"]),
                 "late_users": list(info["late_users"]),
-                "puntaje": info["puntaje"]
+                "puntaje": info["puntaje"],
+                "penalties": info.get("penalties", {})
             }
             for evento, info in events_info.items()
         }
@@ -156,6 +160,7 @@ async def ausencia(ctx, *args):
             dias = int(segundo_arg)
             if dias < 1 or dias > 3:
                 raise ValueError
+
             absence_until = datetime.utcnow() + timedelta(days=dias)
             user_data[nombre_usuario]["absence_until"] = absence_until
             guardar_datos()
@@ -166,7 +171,9 @@ async def ausencia(ctx, *args):
             ))
             return
         except ValueError:
+
             nombre_evento = segundo_arg
+
             user_data[nombre_usuario]["justified_events"].add(nombre_evento)
             guardar_datos()
             await ctx.send(embed=discord.Embed(
@@ -305,6 +312,7 @@ async def score(ctx, nombre: str = None):
 ############################
 # Comandos Administrativos  #
 ############################
+
 @bot.command(name="evento")
 async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     if not es_admin(ctx):
@@ -351,7 +359,8 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
         "timestamp": event_time,
         "linked_users": linked_users_at_event,
         "late_users": set(),
-        "puntaje": puntaje
+        "puntaje": puntaje,
+        "penalties": {}
     }
 
     if noresta:
@@ -362,8 +371,8 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
             if nombre in usuarios_mencionados:
                 datos["score"] += puntaje
 
-                if nombre_evento in datos.get("justificado", []):
-                    datos["justificado"].remove(nombre_evento)
+                if nombre_evento in datos.get("justified_events", set()):
+                    datos["justified_events"].remove(nombre_evento)
             else:
                 pass
     else:
@@ -379,9 +388,8 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
             if nombre in usuarios_mencionados:
                 datos["score"] += puntaje
 
-                if justificado_evento:
-                    if justificado_by_event:
-                        datos["justified_events"].remove(nombre_evento)
+                if justificado_by_event:
+                    datos["justified_events"].remove(nombre_evento)
             else:
                 if justificado_evento:
                     datos["score"] -= puntaje
@@ -389,6 +397,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
                         datos["justified_events"].remove(nombre_evento)
                 else:
                     datos["score"] -= (puntaje * 2)
+                    events_info[nombre_evento]["penalties"][nombre] = puntaje * 2
 
     guardar_datos()
     guardar_eventos()
@@ -545,6 +554,7 @@ async def restardkp(ctx, nombre: str, puntos_a_restar: int):
 ############################
 # Comandos para Gestionar Vacaciones
 ############################
+
 @bot.command(name="ausencia_vacaciones")
 async def ausencia_vacaciones(ctx, nombre: str):
     if not es_admin(ctx):
@@ -602,6 +612,7 @@ async def ausencia_volvio(ctx, nombre: str):
 ############################
 # Comando !llegue_tarde
 ############################
+
 @bot.command(name="llegue_tarde")
 async def llegue_tarde(ctx, nombre_evento: str):
     """
@@ -678,7 +689,13 @@ async def llegue_tarde(ctx, nombre_evento: str):
         ))
         return
 
-    user_data[nombre_usuario]["score"] += puntaje
+    penalty_amount = event["penalties"].get(nombre_usuario, 0)
+
+    if penalty_amount > 0:
+        user_data[nombre_usuario]["score"] += penalty_amount + puntaje
+        del event["penalties"][nombre_usuario]
+    else:
+        user_data[nombre_usuario]["score"] += puntaje
 
     event["late_users"].add(nombre_usuario)
 
@@ -694,6 +711,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
 ############################
 # Tareas para Limpieza    #
 ############################
+
 @tasks.loop(minutes=5)
 async def limpiar_eventos_expirados():
     """
@@ -734,15 +752,16 @@ async def limpiar_eventos_justificados_expirados():
     global user_data, events_info
     ahora = datetime.utcnow()
     modificados = False
-    for nombre_evento, info in events_info.items():
+    for nombre_evento, info in list(events_info.items()):
         evento_time = info["timestamp"]
         if ahora > evento_time + timedelta(minutes=20):
-            for nombre in info["linked_users"]:
-                if nombre in user_data and nombre_evento in user_data[nombre].get("justified_events", set()):
-                    user_data[nombre]["justified_events"].remove(nombre_evento)
-                    modificados = True
+            for nombre in list(info["penalties"].keys()):
+                if nombre in user_data:
+                    pass
+            del events_info[nombre_evento]
+            modificados = True
     if modificados:
-        guardar_datos()
+        guardar_eventos()
 
 ############################
 # Manejo de Errores       #
