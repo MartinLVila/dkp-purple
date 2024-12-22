@@ -1,5 +1,5 @@
 
-# Throne and Liberty DKP Bot - Opulence Purple/Lotus
+# Throne and Liberty DKP Bot - Opulence Purple/Lotus 
 
 ![Bot Logo](https://cdn.discordapp.com/avatars/1319475647692673084/190ff4d1fea02d7b2d128be846dbe025?size=256)
 
