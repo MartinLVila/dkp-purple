@@ -47,8 +47,8 @@ Before setting up the bot, ensure you have the following:
 1. **Clone the Repository:**
 
    ```bash
-   git clone https://github.com/yourusername/throne-and-liberty-dkp-bot.git
-   cd throne-and-liberty-dkp-bot
+   git clone https://github.com/MartinLVila/dkp-purple.git
+   cd dkp-purple
    ```
 
 2. **Create a Virtual Environment (Optional but Recommended):**
