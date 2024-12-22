@@ -1,5 +1,5 @@
 
-# Throne and Liberty Guild DKP Management Bot
+# Throne and Liberty DKP Bot - Opulence Purple/Lotus Guild
 
 ![Bot Logo](https://cdn.discordapp.com/avatars/1319475647692673084/190ff4d1fea02d7b2d128be846dbe025?size=256)
 
@@ -344,5 +344,10 @@ This project is licensed under the [MIT License](LICENSE). You are free to use, 
 - [discord.py](https://discordpy.readthedocs.io/en/stable/) - The Python library used to interact with the Discord API.
 - [Python](https://www.python.org/) - The programming language used for this bot.
 - [Dotenv](https://pypi.org/project/python-dotenv/) - Used for managing environment variables.
+
+## Contact
+If you have any questions or suggestions, feel free to reach out:
+- **GitHub**: [MartinLVila](https://github.com/MartinLVila)
+- **Email**: [MartinLVila@gmail.com](mailto:martinlvila@gmail.com)
 
 ---
