@@ -52,6 +52,7 @@ def cargar_datos():
                             datos["absence_until"] = datetime.strptime(datos["absence_until"], "%Y-%m-%dT%H:%M:%S.%f")
                         except ValueError:
                             datos["absence_until"] = None
+                            logger.error(f"Error al parsear 'absence_until' para el usuario '{nombre}'. Asignando como None.")
                     else:
                         datos["absence_until"] = None
                     
@@ -62,12 +63,16 @@ def cargar_datos():
                     
                     if "justificado" not in datos or not isinstance(datos["justificado"], list):
                         datos["justificado"] = []
+                        logger.warning(f"'justificado' inicializado para el usuario '{nombre}'.")
                     
                 user_data = data
-        except json.JSONDecodeError:
+                logger.info(f"Se cargaron {len(user_data)} usuarios desde '{DATA_FILE}'.")
+        except json.JSONDecodeError as jde:
             user_data = {}
+            logger.error(f"Error al decodificar '{DATA_FILE}': {jde}. Inicializando 'user_data' como diccionario vacío.")
     else:
         user_data = {}
+        logger.info(f"'{DATA_FILE}' no existe. Inicializando 'user_data' como diccionario vacío.")
 
 def guardar_datos():
     serializable_data = {}
@@ -84,8 +89,12 @@ def guardar_datos():
         else:
             serializable_data[nombre]["justified_events"] = []
         
-    with open(DATA_FILE, "w") as f:
-        json.dump(serializable_data, f, indent=4)
+    try:
+        with open(DATA_FILE, "w") as f:
+            json.dump(serializable_data, f, indent=4)
+        logger.info(f"Datos de usuarios guardados correctamente en '{DATA_FILE}'.")
+    except Exception as e:
+        logger.error(f"Error al guardar datos en '{DATA_FILE}': {e}")
 
 def cargar_eventos():
     global events_info
@@ -94,30 +103,55 @@ def cargar_eventos():
             with open(EVENTS_FILE, "r") as f:
                 data = json.load(f)
                 for evento, info in data.items():
-                    info["timestamp"] = datetime.strptime(info["timestamp"], "%Y-%m-%dT%H:%M:%S.%f")
-                    info["linked_users"] = set(info["linked_users"])
-                    info["late_users"] = set(info["late_users"])
-                    info["penalties"] = info.get("penalties", {})
+                    try:
+                        info["timestamp"] = datetime.strptime(info["timestamp"], "%Y-%m-%dT%H:%M:%S.%f")
+                    except ValueError as ve:
+                        logger.error(f"Error al parsear 'timestamp' para el evento '{evento}': {ve}. Asignando la hora actual.")
+                        info["timestamp"] = datetime.utcnow()
+                    
+                    if isinstance(info.get("linked_users"), list):
+                        info["linked_users"] = set(info["linked_users"])
+                    else:
+                        logger.warning(f"'linked_users' para el evento '{evento}' no es una lista. Inicializando como conjunto vacío.")
+                        info["linked_users"] = set()
+    
+                    if isinstance(info.get("late_users"), list):
+                        info["late_users"] = set(info["late_users"])
+                    else:
+                        logger.warning(f"'late_users' para el evento '{evento}' no es una lista. Inicializando como conjunto vacío.")
+                        info["late_users"] = set()
+    
+                    if isinstance(info.get("penalties"), dict):
+                        info["penalties"] = info.get("penalties", {})
+                    else:
+                        logger.warning(f"'penalties' para el evento '{evento}' no es un diccionario. Inicializando como diccionario vacío.")
+                        info["penalties"] = {}
                 events_info = data
-        except json.JSONDecodeError:
+                logger.info(f"Se cargaron {len(events_info)} eventos desde '{EVENTS_FILE}'.")
+        except json.JSONDecodeError as jde:
             events_info = {}
+            logger.error(f"Error al decodificar '{EVENTS_FILE}': {jde}. Inicializando 'events_info' como diccionario vacío.")
     else:
         events_info = {}
+        logger.info(f"'{EVENTS_FILE}' no existe. Inicializando 'events_info' como diccionario vacío.")
 
 def guardar_eventos():
-    with open(EVENTS_FILE, "w") as f:
-        serializable_events = {
-            evento: {
-                "timestamp": info["timestamp"].isoformat(),
-                "linked_users": list(info["linked_users"]),
-                "late_users": list(info["late_users"]),
-                "puntaje": info["puntaje"],
-                "penalties": info.get("penalties", {})
+    try:
+        with open(EVENTS_FILE, "w") as f:
+            serializable_events = {
+                evento: {
+                    "timestamp": info["timestamp"].isoformat(),
+                    "linked_users": list(info["linked_users"]),
+                    "late_users": list(info["late_users"]),
+                    "puntaje": info["puntaje"],
+                    "penalties": info.get("penalties", {})
+                }
+                for evento, info in events_info.items()
             }
-            for evento, info in events_info.items()
-        }
-        json.dump(serializable_events, f, indent=4)
-
+            json.dump(serializable_events, f, indent=4)
+        logger.info(f"Eventos guardados correctamente en '{EVENTS_FILE}'.")
+    except Exception as e:
+        logger.error(f"Error al guardar eventos en '{EVENTS_FILE}': {e}")
 
 @bot.event
 async def on_ready():
@@ -128,7 +162,6 @@ async def on_ready():
     limpiar_eventos_expirados.start()
     limpiar_absences_expiradas.start()
     limpiar_eventos_justificados_expirados.start()
-
 
 def es_admin(ctx):
     return (ctx.author.id in ADMINS_IDS)
@@ -154,6 +187,7 @@ def requiere_vinculacion(comando_admin=False):
                         description="No tienes permisos para usar este comando.",
                         color=discord.Color.red()
                     ))
+                    logger.warning(f"Usuario {ctx.author} intentó usar un comando administrativo sin permisos.")
                     return
             else:
                 if nombre_usuario is None and usuario.id not in ADMINS_IDS:
@@ -162,6 +196,7 @@ def requiere_vinculacion(comando_admin=False):
                         description="No estás vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
                         color=discord.Color.red()
                     ))
+                    logger.warning(f"Usuario {ctx.author} no está vinculado y intentó usar un comando sin permisos.")
                     return
 
             return await func(ctx, *args, **kwargs)
@@ -190,6 +225,7 @@ async def ausencia(ctx, *args):
                 description="Uso correcto para administradores:\n!ausencia nombreusuario dias\n!ausencia nombreusuario nombreevento",
                 color=discord.Color.red()
             ))
+            logger.warning(f"Usuario {ctx.author} usó !ausencia con argumentos incorrectos.")
             return
 
         nombre_usuario = args[0]
@@ -201,6 +237,7 @@ async def ausencia(ctx, *args):
                 description=f"No se encontró el usuario con nombre **{nombre_usuario}**.",
                 color=discord.Color.red()
             ))
+            logger.warning(f"Usuario {nombre_usuario} no encontrado al intentar justificar ausencia.")
             return
 
         try:
@@ -216,9 +253,9 @@ async def ausencia(ctx, *args):
                 description=f"La ausencia para los próximos **{dias} día(s)** ha sido justificada para el usuario **{nombre_usuario}**.",
                 color=discord.Color.yellow()
             ))
+            logger.info(f"Ausencia justificada por {dias} días para el usuario '{nombre_usuario}' por administrador '{ctx.author}'.")
             return
         except ValueError:
-
             nombre_evento = segundo_arg
 
             user_data[nombre_usuario]["justified_events"].add(nombre_evento)
@@ -228,6 +265,7 @@ async def ausencia(ctx, *args):
                 description=f"La ausencia para el evento **{nombre_evento}** ha sido justificada para el usuario **{nombre_usuario}**.",
                 color=discord.Color.yellow()
             ))
+            logger.info(f"Ausencia justificada para el evento '{nombre_evento}' del usuario '{nombre_usuario}' por administrador '{ctx.author}'.")
             return
 
     else:
@@ -237,6 +275,7 @@ async def ausencia(ctx, *args):
                 description="Uso correcto para usuarios:\n!ausencia dias\n!ausencia nombreevento",
                 color=discord.Color.red()
             ))
+            logger.warning(f"Usuario {ctx.author} usó !ausencia con argumentos incorrectos.")
             return
 
         primer_arg = args[0]
@@ -257,6 +296,7 @@ async def ausencia(ctx, *args):
                     description="No se encontró un nombre vinculado a tu usuario. Pide a un oficial que te vincule primero.",
                     color=discord.Color.red()
                 ))
+                logger.warning(f"Usuario {ctx.author} no está vinculado y intentó justificar ausencia por días.")
                 return
 
             absence_until = datetime.utcnow() + timedelta(days=dias)
@@ -268,6 +308,7 @@ async def ausencia(ctx, *args):
                 description=f"Has quedado justificado por los próximos **{dias} día(s)**, **{nombre_usuario}**.",
                 color=discord.Color.yellow()
             ))
+            logger.info(f"Usuario '{nombre_usuario}' justificó ausencia por {dias} días.")
             return
         except ValueError:
             nombre_evento = primer_arg
@@ -283,6 +324,7 @@ async def ausencia(ctx, *args):
                     description="No se encontró un nombre vinculado a tu usuario. Pide a un oficial que te vincule primero.",
                     color=discord.Color.red()
                 ))
+                logger.warning(f"Usuario {ctx.author} no está vinculado y intentó justificar ausencia por evento.")
                 return
 
             user_data[nombre_usuario]["justified_events"].add(nombre_evento)
@@ -292,8 +334,12 @@ async def ausencia(ctx, *args):
                 description=f"Has quedado justificado para el evento **{nombre_evento}**, **{nombre_usuario}**.",
                 color=discord.Color.yellow()
             ))
+            logger.info(f"Usuario '{nombre_usuario}' justificó ausencia para el evento '{nombre_evento}'.")
             return
 
+############################
+# Comando de Consulta de DKP
+############################
 @bot.command(name="dkp")
 @requiere_vinculacion()
 async def score(ctx, nombre: str = None):
@@ -313,6 +359,7 @@ async def score(ctx, nombre: str = None):
                     description="El usuario mencionado no está vinculado al sistema DKP.",
                     color=discord.Color.red()
                 ))
+                logger.warning(f"Usuario mencionado '{member}' no está vinculado en 'user_data'.")
                 return
         else:
             nombre_usuario = nombre
@@ -323,6 +370,7 @@ async def score(ctx, nombre: str = None):
                     description=f"No se encontró el usuario con nombre **{nombre_usuario}**.",
                     color=discord.Color.red()
                 ))
+                logger.warning(f"Usuario '{nombre_usuario}' no encontrado al consultar DKP.")
                 return
 
         puntos = user_data[nombre_usuario]["score"]
@@ -334,9 +382,11 @@ async def score(ctx, nombre: str = None):
         embed.add_field(name="DKP", value=str(puntos), inline=True)
         embed.add_field(name="Estado", value=estado, inline=True)
         await ctx.send(embed=embed)
+        logger.info(f"Usuario '{nombre_usuario}' consultó su DKP.")
     else:
         if not user_data:
             await ctx.send("No hay datos de usuarios aún.")
+            logger.info("Comando !dkp ejecutado pero no hay datos de usuarios.")
             return
 
         all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
@@ -356,33 +406,22 @@ async def score(ctx, nombre: str = None):
             color=discord.Color.blue()
         )
         await ctx.send(embed=embed)
+        logger.info("Se mostró la tabla completa de DKP a {ctx.author}.")
 
 ############################
 # Comandos Administrativos  #
 ############################
 
 @bot.command(name="evento")
+@requiere_vinculacion(comando_admin=True)
 async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
-    global events_info, user_data
-
-    logger.info(f"Comando !evento invocado por {ctx.author} para el evento '{nombre_evento}' con puntaje {puntaje} y usuarios {usuarios_mencionados}")
-
-    if not es_admin(ctx):
-        await ctx.send(embed=discord.Embed(
-            title="Permiso Denegado",
-            description="No tienes permisos para usar este comando.",
-            color=discord.Color.red()
-        ))
-        logger.warning(f"Usuario {ctx.author} intentó usar !evento sin permisos.")
-        return
-
     if puntaje <= 0:
         await ctx.send(embed=discord.Embed(
             title="DKP inválido",
             description="El DKP debe ser un número positivo.",
             color=discord.Color.red()
         ))
-        logger.warning(f"Usuario {ctx.author} intentó crear un evento con puntaje no positivo: {puntaje}.")
+        logger.warning(f"Administrador '{ctx.author}' intentó crear un evento '{nombre_evento}' con puntaje no positivo: {puntaje}.")
         return
 
     usuarios_mencionados = list(usuarios_mencionados)
@@ -405,59 +444,87 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     for nombre in usuarios_mencionados:
         if nombre not in user_data:
             no_encontrados.append(nombre)
-            logger.warning(f"Usuario mencionado '{nombre}' no encontrado en 'user_data'.")
+            logger.warning(f"Usuario mencionado '{nombre}' no encontrado en 'user_data' al crear evento '{nombre_evento}'.")
 
     old_scores = {nombre: datos["score"] for nombre, datos in user_data.items()}
-    old_justificado = {nombre: (nombre_evento in datos["justificado"]) for nombre, datos in user_data.items()}
+    old_justificado = {nombre: (nombre_evento in datos["justified_events"]) for nombre, datos in user_data.items()}
 
     event_time = datetime.utcnow()
     linked_users_at_event = set(user_data.keys())
-
     events_info[nombre_evento] = {
         "timestamp": event_time,
-        "linked_users": set(linked_users_at_event),
+        "linked_users": linked_users_at_event,
         "late_users": set(),
         "puntaje": puntaje,
         "penalties": {}
     }
-    logger.info(f"Evento '{nombre_evento}' agregado a 'events_info'.")
+    logger.info(f"Evento '{nombre_evento}' agregado a 'events_info' por administrador '{ctx.author}'.")
+
+    estados_usuario = {}
 
     if noresta:
-        logger.info(f"Aplicando lógica 'noresta' para el evento '{nombre_evento}'.")
         for nombre, datos in user_data.items():
             if datos.get("status", "normal") == "vacaciones":
-                logger.debug(f"Usuario '{nombre}' está de vacaciones. Omitiendo.")
+                estados_usuario[nombre] = "VACACIONES"
+                logger.debug(f"Usuario '{nombre}' está de vacaciones. Estado asignado: VACACIONES.")
                 continue
 
             if nombre in usuarios_mencionados:
                 datos["score"] += puntaje
                 logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. DKP incrementado en {puntaje}.")
+
                 if nombre_evento in datos.get("justified_events", set()):
                     datos["justified_events"].remove(nombre_evento)
                     logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para el usuario '{nombre}'.")
+            else:
+                pass
+
+            if nombre_evento in datos.get("justified_events", set()) or (datos.get("absence_until") and event_time <= datos["absence_until"]):
+                estados_usuario[nombre] = "JUSTIFICADO"
+                logger.debug(f"Usuario '{nombre}' está justificado para el evento '{nombre_evento}'. Estado asignado: JUSTIFICADO.")
+            elif nombre in usuarios_mencionados:
+                estados_usuario[nombre] = "ASISTIÓ"
+                logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. Estado asignado: ASISTIÓ.")
+            else:
+                estados_usuario[nombre] = "NO ASISTIÓ"
+                logger.debug(f"Usuario '{nombre}' no asistió al evento '{nombre_evento}'. Estado asignado: NO ASISTIÓ.")
     else:
-        logger.info(f"Aplicando lógica estándar para el evento '{nombre_evento}'.")
         for nombre, datos in user_data.items():
             if datos.get("status", "normal") == "vacaciones":
-                logger.debug(f"Usuario '{nombre}' está de vacaciones. Omitiendo.")
+                estados_usuario[nombre] = "VACACIONES"
+                logger.debug(f"Usuario '{nombre}' está de vacaciones. Estado asignado: VACACIONES.")
                 continue
 
             absence_until = datos.get("absence_until")
-            justified_by_days = absence_until and event_time <= absence_until
-            justified_by_event = nombre_evento in datos.get("justified_events", set())
-            justificado_evento = justified_by_days or justified_by_event
+            justificado_by_days = absence_until and event_time <= absence_until
+            justificado_by_event = nombre_evento in datos.get("justified_events", set())
+            justificado_evento = justificado_by_days or justificado_by_event
+
+            if justificado_evento:
+                estado = "JUSTIFICADO"
+                logger.debug(f"Usuario '{nombre}' está justificado para el evento '{nombre_evento}'. Estado asignado: JUSTIFICADO.")
+            elif nombre in usuarios_mencionados:
+                estado = "ASISTIÓ"
+                logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. Estado asignado: ASISTIÓ.")
+            else:
+                estado = "NO ASISTIÓ"
+                logger.debug(f"Usuario '{nombre}' no asistió al evento '{nombre_evento}'. Estado asignado: NO ASISTIÓ.")
+
+            estados_usuario[nombre] = estado
 
             if nombre in usuarios_mencionados:
                 datos["score"] += puntaje
                 logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. DKP incrementado en {puntaje}.")
-                if justificado_evento:
+
+                if justificado_by_event:
                     datos["justified_events"].remove(nombre_evento)
                     logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para el usuario '{nombre}'.")
             else:
                 if justificado_evento:
                     datos["score"] -= puntaje
                     logger.debug(f"Usuario '{nombre}' justificado para el evento '{nombre_evento}'. DKP decrementado en {puntaje}.")
-                    if nombre_evento in datos.get("justified_events", set()):
+
+                    if justificado_by_event:
                         datos["justified_events"].remove(nombre_evento)
                         logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para el usuario '{nombre}'.")
                 else:
@@ -474,18 +541,8 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
                         ))
                         return
 
-    try:
-        guardar_datos()
-        guardar_eventos()
-        logger.info(f"Datos y eventos guardados correctamente tras el comando '!evento {nombre_evento}'.")
-    except Exception as e:
-        logger.error(f"Error al guardar datos/eventos tras el comando '!evento {nombre_evento}': {e}")
-        await ctx.send(embed=discord.Embed(
-            title="Error Interno",
-            description="Ocurrió un error al guardar los datos del evento. Por favor, contacta al administrador.",
-            color=discord.Color.red()
-        ))
-        return
+    guardar_datos()
+    guardar_eventos()
 
     all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
 
@@ -496,18 +553,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
         antes = old_scores.get(nombre, 0)
         despues = datos["score"]
 
-        if datos.get("status", "normal") == "vacaciones":
-            estado = "VACACIONES"
-        else:
-            absence_until = datos.get("absence_until")
-            justified_by_days = absence_until and event_time <= absence_until
-            justified_by_event = nombre_evento in datos.get("justified_events", set())
-            if justified_by_days or justified_by_event:
-                estado = "JUSTIFICADO"
-            elif nombre in usuarios_mencionados:
-                estado = "ASISTIÓ"
-            else:
-                estado = "NO ASISTIÓ"
+        estado = estados_usuario.get(nombre, "ACTIVO")
 
         desc += "{:<15} {:<15} {:<10} {:<10}\n".format(
             nombre, estado, str(antes), str(despues)
@@ -520,7 +566,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
         description=desc
     )
     await ctx.send(embed=embed)
-    logger.info(f"Embed para el evento '{nombre_evento}' enviado a {ctx.author}.")
+    logger.info(f"Evento '{nombre_evento}' procesado y embed enviado por administrador '{ctx.author}'.")
 
     if no_encontrados:
         mensaje_no_encontrados = "No se encontraron los siguientes usuarios:\n"
@@ -535,6 +581,15 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
 @bot.command(name="vincular")
 @requiere_vinculacion(comando_admin=True)
 async def vincular(ctx, member: discord.Member, nombre: str):
+    if nombre in user_data:
+        await ctx.send(embed=discord.Embed(
+            title="Vinculación Fallida",
+            description=f"El nombre **{nombre}** ya está vinculado a otro usuario.",
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Intento de vincular usuario '{member}' con nombre ya existente '{nombre}'.")
+        return
+
     user_data[nombre] = {
         "discord_id": member.id,
         "score": user_data.get(nombre, {}).get("score", 0),
@@ -545,10 +600,11 @@ async def vincular(ctx, member: discord.Member, nombre: str):
     }
     guardar_datos()
     await ctx.send(embed=discord.Embed(
-        title="Vinculación completada",
+        title="Vinculación Completada",
         description=f"El usuario {member.mention} ha sido vinculado al nombre **{nombre}** con estado **ACTIVO**.",
         color=discord.Color.green()
     ))
+    logger.info(f"Usuario {member} vinculado al nombre '{nombre}' por administrador '{ctx.author}'.")
 
 @bot.command(name="borrarusuario")
 @requiere_vinculacion(comando_admin=True)
@@ -559,6 +615,7 @@ async def borrarusuario(ctx, nombre: str):
             description=f"No se encontró el usuario con nombre **{nombre}**.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Intento de borrar usuario no existente '{nombre}' por administrador '{ctx.author}'.")
         return
 
     puntos = user_data[nombre]["score"]
@@ -571,6 +628,7 @@ async def borrarusuario(ctx, nombre: str):
         description=f"El usuario **{nombre}** con {puntos} DKP ha sido eliminado de la lista.",
         color=discord.Color.green()
     ))
+    logger.info(f"Usuario '{nombre}' eliminado por administrador '{ctx.author}'. DKP: {puntos}.")
 
 @bot.command(name="sumardkp")
 @requiere_vinculacion(comando_admin=True)
@@ -581,6 +639,16 @@ async def sumardkp(ctx, nombre: str, puntos_a_sumar: int):
             description=f"No se encontró el usuario con nombre **{nombre}**.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Intento de sumar DKP a usuario no existente '{nombre}' por administrador '{ctx.author}'.")
+        return
+
+    if puntos_a_sumar <= 0:
+        await ctx.send(embed=discord.Embed(
+            title="DKP Inválido",
+            description="La cantidad de DKP a sumar debe ser un número positivo.",
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Administrador '{ctx.author}' intentó sumar DKP no válido: {puntos_a_sumar} a '{nombre}'.")
         return
 
     user_data[nombre]["score"] += puntos_a_sumar
@@ -590,8 +658,10 @@ async def sumardkp(ctx, nombre: str, puntos_a_sumar: int):
         description=f"Se han agregado {puntos_a_sumar} DKP a **{nombre}**. Total: {user_data[nombre]['score']}",
         color=discord.Color.green()
     ))
+    logger.info(f"Administrador '{ctx.author}' sumó {puntos_a_sumar} DKP a '{nombre}'. Total: {user_data[nombre]['score']} DKP.")
 
 @bot.command(name="restardkp")
+@requiere_vinculacion(comando_admin=True)
 async def restardkp(ctx, member: discord.Member, puntos_a_restar: int):
     global user_data
 
@@ -625,18 +695,17 @@ async def restardkp(ctx, member: discord.Member, puntos_a_restar: int):
             description="La cantidad de DKP a restar debe ser un número positivo.",
             color=discord.Color.red()
         ))
-        logger.warning(f"Intento de restar DKP no válido: {puntos_a_restar} a '{nombre_usuario}'.")
+        logger.warning(f"Administrador '{ctx.author}' intentó restar DKP no válido: {puntos_a_restar} a '{nombre_usuario}'.")
         return
 
     user_data[nombre_usuario]["score"] -= puntos_a_restar
     guardar_datos()
-    logger.info(f"Se han restado {puntos_a_restar} DKP a '{nombre_usuario}' (ID Discord: {member.id}).")
-    
     await ctx.send(embed=discord.Embed(
         title="DKP Actualizado",
-        description=f"Se han restado **{puntos_a_restar} DKP** a **{nombre_usuario}**. Total: **{user_data[nombre_usuario]['score']} DKP**.",
+        description=f"Se han restado {puntos_a_restar} DKP a **{nombre_usuario}**. Total: {user_data[nombre_usuario]['score']}",
         color=discord.Color.orange()
     ))
+    logger.info(f"Administrador '{ctx.author}' restó {puntos_a_restar} DKP a '{nombre_usuario}'. Total: {user_data[nombre_usuario]['score']} DKP.")
 
 ############################
 # Comandos para Gestionar Vacaciones
@@ -651,6 +720,7 @@ async def ausencia_vacaciones(ctx, nombre: str):
             description=f"No se encontró el usuario con nombre **{nombre}**.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Administrador '{ctx.author}' intentó marcar como vacaciones a usuario no existente '{nombre}'.")
         return
 
     user_data[nombre]["status"] = "vacaciones"
@@ -660,6 +730,7 @@ async def ausencia_vacaciones(ctx, nombre: str):
         description=f"El usuario **{nombre}** ha sido marcado como **VACACIONES**.",
         color=discord.Color.yellow()
     ))
+    logger.info(f"Administrador '{ctx.author}' marcó al usuario '{nombre}' como VACACIONES.")
 
 @bot.command(name="ausencia_volvio")
 @requiere_vinculacion(comando_admin=True)
@@ -670,6 +741,7 @@ async def ausencia_volvio(ctx, nombre: str):
             description=f"No se encontró el usuario con nombre **{nombre}**.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Administrador '{ctx.author}' intentó marcar como activo a usuario no existente '{nombre}'.")
         return
 
     user_data[nombre]["status"] = "normal"
@@ -681,6 +753,7 @@ async def ausencia_volvio(ctx, nombre: str):
         description=f"El usuario **{nombre}** ha vuelto de **VACACIONES** y está nuevamente en estado **ACTIVO**.",
         color=discord.Color.green()
     ))
+    logger.info(f"Administrador '{ctx.author}' marcó al usuario '{nombre}' como ACTIVO después de VACACIONES.")
 
 ############################
 # Comando !llegue_tarde
@@ -701,6 +774,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
             description=f"Este comando solo puede usarse en el canal designado para llegadas tardías.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Usuario '{ctx.author}' intentó usar !llegue_tarde en el canal incorrecto.")
         return
 
     if nombre_evento not in events_info:
@@ -709,6 +783,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
             description=f"No se encontró el evento **{nombre_evento}**. Asegúrate de haberlo registrado con !evento.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Usuario '{ctx.author}' intentó justificar llegada tardía para evento no existente '{nombre_evento}'.")
         return
 
     event = events_info[nombre_evento]
@@ -721,6 +796,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
             description=f"El tiempo para justificar tu llegada tardía al evento **{nombre_evento}** ha expirado.",
             color=discord.Color.red()
         ))
+        logger.info(f"Usuario '{ctx.author}' intentó justificar llegada tardía para evento '{nombre_evento}' pero el tiempo ha expirado.")
         return
 
     nombre_usuario = None
@@ -735,6 +811,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
             description="No se encontró un nombre vinculado a tu usuario. Pide a un oficial que te vincule primero.",
             color=discord.Color.red()
         ))
+        logger.warning(f"Usuario '{ctx.author}' intentó justificar llegada tardía pero no está vinculado.")
         return
 
     if nombre_usuario in event["late_users"]:
@@ -743,6 +820,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
             description="Ya has justificado tu llegada tardía para este evento.",
             color=discord.Color.red()
         ))
+        logger.info(f"Usuario '{nombre_usuario}' intentó justificar llegada tardía más de una vez para evento '{nombre_evento}'.")
         return
 
     if nombre_usuario not in event["linked_users"]:
@@ -751,6 +829,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
             description="Estabas vinculado al momento del evento y tus puntos ya fueron ajustados.",
             color=discord.Color.red()
         ))
+        logger.info(f"Usuario '{nombre_usuario}' no necesita justificar llegada tardía para evento '{nombre_evento}' porque estaba vinculado.")
         return
 
     puntaje = event["puntaje"]
@@ -761,6 +840,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
             description="Tu usuario no está vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
             color=discord.Color.red()
         ))
+        logger.error(f"Usuario '{nombre_usuario}' no está vinculado en 'user_data' al intentar justificar llegada tardía.")
         return
 
     penalty_amount = event["penalties"].get(nombre_usuario, 0)
@@ -768,8 +848,10 @@ async def llegue_tarde(ctx, nombre_evento: str):
     if penalty_amount > 0:
         user_data[nombre_usuario]["score"] += penalty_amount + puntaje
         del event["penalties"][nombre_usuario]
+        logger.info(f"Usuario '{nombre_usuario}' recibió penalización y puntaje adicional por llegada tardía al evento '{nombre_evento}'.")
     else:
         user_data[nombre_usuario]["score"] += puntaje
+        logger.info(f"Usuario '{nombre_usuario}' justificó llegada tardía y recibió puntaje por evento '{nombre_evento}'.")
 
     event["late_users"].add(nombre_usuario)
 
@@ -781,12 +863,13 @@ async def llegue_tarde(ctx, nombre_evento: str):
         description=f"Se han sumado **{puntaje} DKP** al evento **{nombre_evento}** para ti, **{nombre_usuario}**.",
         color=discord.Color.green()
     ))
+    logger.info(f"Usuario '{nombre_usuario}' justificó llegada tardía al evento '{nombre_evento}'.")
 
 ############################
 # Tareas para Limpieza    #
 ############################
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=10)
 async def limpiar_eventos_expirados():
     """
     Limpia los eventos que han expirado (más de 20 minutos desde su creación).
@@ -799,10 +882,11 @@ async def limpiar_eventos_expirados():
     ]
     for evento in eventos_a_eliminar:
         del events_info[evento]
+        logger.info(f"Evento '{evento}' eliminado por limpieza de eventos expirados.")
     if eventos_a_eliminar:
         guardar_eventos()
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=10)
 async def limpiar_absences_expiradas():
     """
     Limpia las ausencias que han expirado.
@@ -815,10 +899,11 @@ async def limpiar_absences_expiradas():
             if ahora > datos["absence_until"]:
                 user_data[nombre]["absence_until"] = None
                 modificados = True
+                logger.info(f"Ausencia de '{nombre}' ha expirado y ha sido limpiada.")
     if modificados:
         guardar_datos()
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=10)
 async def limpiar_eventos_justificados_expirados():
     """
     Limpia los eventos justificados específicos que ya han ocurrido.
@@ -834,6 +919,7 @@ async def limpiar_eventos_justificados_expirados():
                     pass
             del events_info[nombre_evento]
             modificados = True
+            logger.info(f"Evento justificado '{nombre_evento}' eliminado por limpieza.")
     if modificados:
         guardar_eventos()
 
@@ -844,15 +930,17 @@ async def limpiar_eventos_justificados_expirados():
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
         await ctx.send("Faltan argumentos para este comando.")
+        logger.warning(f"Comando '{ctx.command}' usado por '{ctx.author}' faltando argumentos.")
     elif isinstance(error, commands.MissingPermissions):
         await ctx.send("No tienes permisos para usar este comando.")
+        logger.warning(f"Comando '{ctx.command}' usado por '{ctx.author}' sin permisos.")
     elif isinstance(error, commands.BadArgument):
         await ctx.send("Tipo de argumento inválido.")
+        logger.warning(f"Comando '{ctx.command}' usado por '{ctx.author}' con argumentos inválidos.")
     else:
         await ctx.send("Ocurrió un error al procesar el comando.")
-        logger.error(f"Error en comando {ctx.command} usado por {ctx.author} (ID: {ctx.author.id}): {error}")
+        logger.error(f"Error en comando '{ctx.command}' usado por '{ctx.author}' (ID: {ctx.author.id}): {error}")
         print(f"Error: {error}")
-
 
 @bot.event
 async def on_command(ctx):
