@@ -305,8 +305,8 @@ Contributions are welcome! If you'd like to improve the bot, follow these steps:
 2. **Clone Your Fork:**
 
    ```bash
-   git clone https://github.com/yourusername/throne-and-liberty-dkp-bot.git
-   cd throne-and-liberty-dkp-bot
+   git clone https://github.com/MartinLVila/dkp-purple.git
+   cd dkp-purple
    ```
 
 3. **Create a New Branch:**
