@@ -33,8 +33,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 DATA_FILE = "scores.json"
 EVENTS_FILE = "events.json"
+REGISTERED_EVENTS_FILE = "registered_events.json"
+
 user_data = {}
 events_info = {}
+registered_events = set()
 
 def cargar_datos():
     global user_data
@@ -153,10 +156,39 @@ def guardar_eventos():
     except Exception as e:
         logger.error(f"Error al guardar eventos en '{EVENTS_FILE}': {e}")
 
+def cargar_eventos_registrados():
+    global registered_events
+    if os.path.exists(REGISTERED_EVENTS_FILE):
+        try:
+            with open(REGISTERED_EVENTS_FILE, "r") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    registered_events = set(data)
+                else:
+                    registered_events = set()
+                logger.info(f"Se cargaron {len(registered_events)} eventos registrados desde '{REGISTERED_EVENTS_FILE}'.")
+        except json.JSONDecodeError as jde:
+            registered_events = set()
+            logger.error(f"Error al decodificar '{REGISTERED_EVENTS_FILE}': {jde}. Se inicializa 'registered_events' vacío.")
+    else:
+        registered_events = set()
+        logger.info(f"No existe '{REGISTERED_EVENTS_FILE}'. Se inicializa 'registered_events' vacío.")
+
+def guardar_eventos_registrados():
+    try:
+        with open(REGISTERED_EVENTS_FILE, "w") as f:
+            json.dump(list(registered_events), f, indent=4)
+        logger.info(f"Eventos registrados guardados correctamente en '{REGISTERED_EVENTS_FILE}'.")
+    except Exception as e:
+        logger.error(f"Error al guardar eventos registrados en '{REGISTERED_EVENTS_FILE}': {e}")
+
+
 @bot.event
 async def on_ready():
     cargar_datos()
     cargar_eventos()
+    cargar_eventos_registrados()
+    
     print(f"Bot conectado como {bot.user}")
     logger.info(f"Bot conectado como {bot.user} (ID: {bot.user.id})")
     limpiar_eventos_expirados.start()
@@ -202,6 +234,68 @@ def requiere_vinculacion(comando_admin=False):
             return await func(ctx, *args, **kwargs)
         return wrapper
     return decorator
+
+@bot.command(name="registroevento")
+@requiere_vinculacion(comando_admin=True)
+async def registroevento(ctx, nombre_evento: str):
+    """
+    Registra un nuevo evento en la lista de eventos permanentes (no se borra automáticamente).
+    Solo para administradores.
+    """
+    nombre_evento_lower = nombre_evento.lower()
+
+    for evt in registered_events:
+        if evt.lower() == nombre_evento_lower:
+            await ctx.send(embed=discord.Embed(
+                title="Evento Ya Registrado",
+                description=f"El evento **{nombre_evento}** ya estaba registrado.",
+                color=discord.Color.red()
+            ))
+            logger.warning(f"Administrador '{ctx.author}' intentó registrar un evento ya existente '{nombre_evento}'.")
+            return
+
+    registered_events.add(nombre_evento)
+    guardar_eventos_registrados()
+
+    await ctx.send(embed=discord.Embed(
+        title="Evento Registrado",
+        description=f"Se ha registrado el evento permanente **{nombre_evento}**.",
+        color=discord.Color.green()
+    ))
+    logger.info(f"Evento permanente '{nombre_evento}' registrado por administrador '{ctx.author}'.")
+
+
+@bot.command(name="borrarevento")
+@requiere_vinculacion(comando_admin=True)
+async def borrarevento(ctx, nombre_evento: str):
+    """
+    Borra un evento permanente de la lista de eventos registrados.
+    Solo para administradores.
+    """
+    to_remove = None
+    for evt in registered_events:
+        if evt.lower() == nombre_evento.lower():
+            to_remove = evt
+            break
+
+    if to_remove is None:
+        await ctx.send(embed=discord.Embed(
+            title="Evento No Encontrado",
+            description=f"No se encontró el evento permanente **{nombre_evento}** para borrar.",
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Administrador '{ctx.author}' intentó borrar un evento permanente no existente '{nombre_evento}'.")
+        return
+
+    registered_events.remove(to_remove)
+    guardar_eventos_registrados()
+
+    await ctx.send(embed=discord.Embed(
+        title="Evento Eliminado",
+        description=f"Se eliminó el evento permanente **{to_remove}** de la lista.",
+        color=discord.Color.green()
+    ))
+    logger.info(f"Evento permanente '{to_remove}' fue eliminado por administrador '{ctx.author}'.")
 
 ############################
 # Comando para ausencia con duración o por evento
@@ -258,6 +352,20 @@ async def ausencia(ctx, *args):
         except ValueError:
             nombre_evento = segundo_arg
 
+            if not any(evt.lower() == nombre_evento.lower() for evt in registered_events):
+                eventos_disponibles = ", ".join(sorted(registered_events))
+                await ctx.send(embed=discord.Embed(
+                    title="Evento No Registrado",
+                    description=(
+                        f"El evento **{nombre_evento}** no está en la lista de eventos permanentes.\n\n"
+                        f"Eventos disponibles:\n**{eventos_disponibles}**\n\n"
+                        "Si corresponde, regístralo antes con !registroevento."
+                    ),
+                    color=discord.Color.red()
+                ))
+                logger.warning(f"El evento '{nombre_evento}' no está registrado. No se puede justificar ausencia.")
+                return
+
             user_data[nombre_usuario]["justified_events"].add(nombre_evento)
             guardar_datos()
             await ctx.send(embed=discord.Embed(
@@ -312,6 +420,21 @@ async def ausencia(ctx, *args):
             return
         except ValueError:
             nombre_evento = primer_arg
+
+            if not any(evt.lower() == nombre_evento.lower() for evt in registered_events):
+                eventos_disponibles = ", ".join(sorted(registered_events))
+                await ctx.send(embed=discord.Embed(
+                    title="Evento No Registrado",
+                    description=(
+                        f"El evento **{nombre_evento}** no está en la lista de eventos permanentes.\n\n"
+                        f"Eventos disponibles:\n**{eventos_disponibles}**\n\n"
+                        "Si corresponde, pide a un oficial que lo registre con !registroevento."
+                    ),
+                    color=discord.Color.red()
+                ))
+                logger.warning(f"Usuario '{ctx.author}' intentó justificar ausencia a un evento no registrado '{nombre_evento}'.")
+                return
+
             nombre_usuario = None
             for nombre, datos in user_data.items():
                 if datos.get("discord_id") == ctx.author.id:
@@ -406,7 +529,7 @@ async def score(ctx, nombre: str = None):
             color=discord.Color.blue()
         )
         await ctx.send(embed=embed)
-        logger.info("Se mostró la tabla completa de DKP a {ctx.author}.")
+        logger.info(f"Se mostró la tabla completa de DKP a {ctx.author}.")
 
 ############################
 # Comandos Administrativos  #
