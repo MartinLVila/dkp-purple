@@ -425,6 +425,8 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
         return
 
     usuarios_mencionados = list(usuarios_mencionados)
+    logger.debug(f"Usuarios mencionados (original): {usuarios_mencionados}")
+    
     noresta = False
     usuarios_mencionados_lower = [u.lower() for u in usuarios_mencionados]
     if 'noresta' in usuarios_mencionados_lower:
@@ -432,19 +434,24 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
         usuarios_mencionados = [u for u in usuarios_mencionados if u.lower() != 'noresta']
         logger.info(f"'noresta' activado para el evento '{nombre_evento}'.")
 
-    usuarios_mencionados = set(usuarios_mencionados)
-
-    for nombre, datos in user_data.items():
-        if "justificado" not in datos or not isinstance(datos["justificado"], list):
-            user_data[nombre]["justificado"] = []
-            logger.debug(f"'justificado' inicializado para el usuario '{nombre}'.")
-
+    usuarios_final = set()
     no_encontrados = []
 
-    for nombre in usuarios_mencionados:
-        if nombre not in user_data:
-            no_encontrados.append(nombre)
-            logger.warning(f"Usuario mencionado '{nombre}' no encontrado en 'user_data' al crear evento '{nombre_evento}'.")
+    for user_name_in_command in usuarios_mencionados:
+        nombre_real = next(
+            (nombre_registrado for nombre_registrado in user_data
+             if nombre_registrado.lower() == user_name_in_command.lower()),
+            None
+        )
+        if nombre_real is None:
+            no_encontrados.append(user_name_in_command)
+            logger.warning(f"Usuario mencionado '{user_name_in_command}' no encontrado en 'user_data'.")
+        else:
+            usuarios_final.add(nombre_real)
+            logger.debug(f"'{user_name_in_command}' coincide con '{nombre_real}' en user_data.")
+
+    logger.debug(f"Usuarios finales (match en user_data): {usuarios_final}")
+
 
     old_scores = {nombre: datos["score"] for nombre, datos in user_data.items()}
     old_justificado = {nombre: (nombre_evento in datos["justified_events"]) for nombre, datos in user_data.items()}
@@ -458,7 +465,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
         "puntaje": puntaje,
         "penalties": {}
     }
-    logger.info(f"Evento '{nombre_evento}' agregado a 'events_info' por administrador '{ctx.author}'.")
+    logger.info(f"Evento '{nombre_evento}' agregado o actualizado en 'events_info' por administrador '{ctx.author}'.")
 
     estados_usuario = {}
 
@@ -469,7 +476,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
                 logger.debug(f"Usuario '{nombre}' está de vacaciones. Estado asignado: VACACIONES.")
                 continue
 
-            if nombre in usuarios_mencionados:
+            if nombre in usuarios_final:
                 datos["score"] += puntaje
                 logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. DKP incrementado en {puntaje}.")
 
@@ -479,10 +486,11 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
             else:
                 pass
 
-            if nombre_evento in datos.get("justified_events", set()) or (datos.get("absence_until") and event_time <= datos["absence_until"]):
+            if (nombre_evento in datos.get("justified_events", set())
+                or (datos.get("absence_until") and event_time <= datos["absence_until"])):
                 estados_usuario[nombre] = "JUSTIFICADO"
                 logger.debug(f"Usuario '{nombre}' está justificado para el evento '{nombre_evento}'. Estado asignado: JUSTIFICADO.")
-            elif nombre in usuarios_mencionados:
+            elif nombre in usuarios_final:
                 estados_usuario[nombre] = "ASISTIÓ"
                 logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. Estado asignado: ASISTIÓ.")
             else:
@@ -503,7 +511,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
             if justificado_evento:
                 estado = "JUSTIFICADO"
                 logger.debug(f"Usuario '{nombre}' está justificado para el evento '{nombre_evento}'. Estado asignado: JUSTIFICADO.")
-            elif nombre in usuarios_mencionados:
+            elif nombre in usuarios_final:
                 estado = "ASISTIÓ"
                 logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. Estado asignado: ASISTIÓ.")
             else:
@@ -512,7 +520,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
 
             estados_usuario[nombre] = estado
 
-            if nombre in usuarios_mencionados:
+            if nombre in usuarios_final:
                 datos["score"] += puntaje
                 logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. DKP incrementado en {puntaje}.")
 
@@ -529,6 +537,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
                         logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para el usuario '{nombre}'.")
                 else:
                     datos["score"] -= (puntaje * 2)
+                    logger.debug(f"Usuario '{nombre}' no asistió sin justificación. DKP decrementado en {puntaje * 2}.")
                     if nombre_evento in events_info:
                         events_info[nombre_evento]["penalties"][nombre] = puntaje * 2
                         logger.debug(f"Penalización de {puntaje * 2} DKP asignada a '{nombre}' para el evento '{nombre_evento}'.")
@@ -569,8 +578,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     logger.info(f"Evento '{nombre_evento}' procesado y embed enviado por administrador '{ctx.author}'.")
 
     if no_encontrados:
-        mensaje_no_encontrados = "No se encontraron los siguientes usuarios:\n"
-        mensaje_no_encontrados += ", ".join(no_encontrados)
+        mensaje_no_encontrados = "No se encontraron los siguientes usuarios:\n" + ", ".join(no_encontrados)
         await ctx.send(embed=discord.Embed(
             title="Usuarios no encontrados",
             description=mensaje_no_encontrados,
