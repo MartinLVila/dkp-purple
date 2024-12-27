@@ -2,6 +2,7 @@ import os
 import discord
 import json
 import logging
+import requests
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -9,6 +10,7 @@ from functools import wraps
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY")
 CANAL_ADMIN = int(os.getenv("CANAL_ADMIN"))
 CANAL_AUSENCIAS = int(os.getenv("CANAL_AUSENCIAS"))
 CANAL_TARDE = int(os.getenv("CANAL_TARDE"))
@@ -679,6 +681,107 @@ async def score(ctx, nombre: str = None):
 ############################
 # Comandos Administrativos
 ############################
+def clean_name(line: str) -> str:
+    """
+    SOLO PARA ESTE PROYECTO TODO: ARREGLARLO
+    Reemplaza substrings por nombres esperados:
+      - Si la línea contiene 'abyss'  -> 'abyss'
+      - Si la línea contiene 'mob'    -> 'mob'
+      - Si la línea contiene 'killa'  -> 'Killa'
+      - Si la línea contiene 'nebu'   -> 'xNebu'
+      - Si la línea contiene 'tinta china' -> 'ャンクス'
+
+    Si no coincide con nada, se retorna tal cual.
+    SOLO PARA ESTE PROYECTO TODO: ARREGLARLO
+    """
+    lower_line = line.lower()
+
+    if "abyss" in lower_line:
+        return "abyss"
+    if "mob" in lower_line:
+        return "mob"
+    if "killa" in lower_line:
+        return "Killa"
+    if "nebu" in lower_line:
+        return "xNebu"
+    if "tinta china" in lower_line:
+        return "ャンクス"
+
+    return line
+
+@bot.command(name="asistencia")
+@requiere_vinculacion(comando_admin=True)
+async def asistencia(ctx):
+    if not ctx.message.attachments:
+        await ctx.send("Por favor, adjunta al menos una imagen PNG/JPG con la lista de nombres.")
+        return
+
+    nombres_coincidentes = set()
+    user_data_lower = {ud.lower(): ud for ud in user_data.keys()}
+
+    for attachment in ctx.message.attachments:
+        filename_lower = attachment.filename.lower()
+        if not (filename_lower.endswith(".png") or filename_lower.endswith(".jpg") or filename_lower.endswith(".jpeg")):
+            await ctx.send(f"Archivo '{attachment.filename}' no es PNG/JPG. Se omite.")
+            continue
+
+        image_data = await attachment.read()
+        url = "https://api.ocr.space/parse/image"
+
+        try:
+            response = requests.post(
+                url,
+                files={"filename": (attachment.filename, image_data)},
+                data={
+                    "apikey": OCR_SPACE_API_KEY,
+                    "language": "spa",
+                    "OCREngine": "2",
+                    "filetype": "PNG",
+                },
+                timeout=30
+            )
+            result = response.json()
+
+            if not result.get("IsErroredOnProcessing"):
+                parsed_results = result.get("ParsedResults", [])
+                if parsed_results:
+                    ocr_text = parsed_results[0].get("ParsedText", "")
+                    lineas = [l.strip() for l in ocr_text.splitlines() if l.strip()]
+
+                    for linea in lineas:
+                        linea_limpia = clean_name(linea)
+                        nd_lower = linea_limpia.lower()
+                        if nd_lower in user_data_lower:
+                            nombres_coincidentes.add(user_data_lower[nd_lower])
+                else:
+                    await ctx.send(f"OCR.Space no devolvió resultados para {attachment.filename}.")
+            else:
+                err_msg = result.get("ErrorMessage", ["Desconocido"])[0]
+                await ctx.send(f"OCR.Space reportó error en {attachment.filename}: {err_msg}")
+
+        except requests.RequestException as e:
+            await ctx.send(f"Error al conectar con OCR.Space para {attachment.filename}: {e}")
+            continue
+
+    if not nombres_coincidentes:
+        await ctx.send("No hubo coincidencias con user_data en las imágenes.")
+        return
+
+    coincidencias_str = " ".join(sorted(nombres_coincidentes))
+
+    embed = discord.Embed(
+        title="Asistencia del evento",
+        description="Coincidencias encontradas",
+        color=discord.Color.green()
+    )
+    embed.add_field(
+        name="Nombres",
+        value=f"```\n{coincidencias_str}\n```",
+        inline=False
+    )
+
+    await ctx.send(embed=embed)
+
 @bot.command(name="evento")
 @requiere_vinculacion(comando_admin=True)
 async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
