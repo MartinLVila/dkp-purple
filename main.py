@@ -1,3 +1,7 @@
+############################
+# Inmantenible, TODO: modulos
+############################
+
 import os
 import discord
 import json
