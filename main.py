@@ -632,7 +632,6 @@ class AsistenciaView(View):
             try:
                 evento_seleccionado = interaction.data['custom_id'].replace("evento_", "")
             except KeyError:
-
                 await interaction.response.send_message(
                     "No se pudo determinar el evento seleccionado.",
                     ephemeral=True
@@ -694,10 +693,8 @@ class AsistenciaView(View):
 
     async def seleccionar_resta(self, interaction: discord.Interaction):
         try:
-
             decision = interaction.component.custom_id.replace("resta_", "").upper()
         except AttributeError:
-
             try:
                 decision = interaction.data['custom_id'].replace("resta_", "").upper()
             except KeyError:
@@ -720,7 +717,6 @@ class AsistenciaView(View):
             ),
             color=discord.Color.gold()
         )
-
         confirmar = Button(label="CONFIRMAR", style=ButtonStyle.success, custom_id="confirmar")
         cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
         confirmar.callback = self.confirmar_operacion
@@ -731,7 +727,6 @@ class AsistenciaView(View):
         await interaction.response.edit_message(embed=self.embed, view=self)
 
     async def confirmar_operacion(self, interaction: discord.Interaction):
-
         noresta_str = "NORESTA" if self.resta_dkp else ""
         listadenombres = self.nombres_filtrados
         comando_evento = f"!evento {self.evento_seleccionado} {self.dkp_seleccionado} {noresta_str} " + " ".join(listadenombres)
@@ -764,75 +759,6 @@ class AsistenciaView(View):
         await interaction.response.edit_message(embed=embed_final, view=self)
         self.stop()
         
-async def seleccionar_resta(self, interaction: discord.Interaction):
-    try:
-        decision = interaction.component.custom_id.replace("resta_", "").upper()
-    except AttributeError:
-        try:
-            decision = interaction.data['custom_id'].replace("resta_", "").upper()
-        except KeyError:
-            await interaction.response.send_message(
-                "No se pudo determinar la opción seleccionada.",
-                ephemeral=True
-            )
-            logger.error("No se pudo acceder al custom_id en 'seleccionar_resta'.")
-            return
-
-    self.resta_dkp = True if decision == "SI" else False
-    self.clear_items()
-    embed = discord.Embed(
-        title="CONFIRMAR",
-        description=(
-            f"**Evento:** {self.evento_seleccionado}\n"
-            f"**DKP:** {self.dkp_seleccionado}\n"
-            f"**Resta DKP:** {'SI' if self.resta_dkp else 'NO'}\n\n"
-            f"**Nombres:**\n```\n" + "\n".join(self.nombres_filtrados) + "\n```"
-        ),
-        color=discord.Color.gold()
-    )
-    confirmar = Button(label="CONFIRMAR", style=ButtonStyle.success, custom_id="confirmar")
-    cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
-    confirmar.callback = self.confirmar_operacion
-    cancelar.callback = self.cancel_operation
-    self.add_item(confirmar)
-    self.add_item(cancelar)
-    self.embed = embed
-    await interaction.response.edit_message(embed=self.embed, view=self)
-
-
-    async def confirmar_operacion(self, interaction: discord.Interaction):
-        noresta_str = "NORESTA" if self.resta_dkp else ""
-        listadenombres = self.nombres_filtrados
-        comando_evento = f"!evento {self.evento_seleccionado} {self.dkp_seleccionado} {noresta_str} " + " ".join(listadenombres)
-        comando_evento = comando_evento.strip()
-
-        canal_admin = bot.get_channel(CANAL_ADMIN)
-        if canal_admin is None:
-            await interaction.response.send_message(
-                "No se pudo encontrar el canal de administración.",
-                ephemeral=True
-            )
-            logger.error(f"No se pudo encontrar el canal con ID {CANAL_ADMIN}.")
-            return
-
-        await handle_evento(
-            nombre_evento=self.evento_seleccionado,
-            puntaje=self.dkp_seleccionado,
-            noresta=self.resta_dkp,
-            listadenombres=listadenombres,
-            channel=canal_admin,
-            executor=interaction.user
-        )
-
-        self.clear_items()
-        embed_final = discord.Embed(
-            title="Asistencia Registrada",
-            description="La asistencia ha sido registrada exitosamente en el canal de administración.",
-            color=discord.Color.green()
-        )
-        await interaction.response.edit_message(embed=embed_final, view=self)
-        self.stop()
-
 @bot.command(name="dkpdetalle")
 @requiere_vinculacion()
 async def dkp_detalle(ctx, *, nombre_usuario: str = None):
