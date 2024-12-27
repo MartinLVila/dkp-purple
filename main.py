@@ -833,13 +833,14 @@ async def seleccionar_resta(self, interaction: discord.Interaction):
         await interaction.response.edit_message(embed=embed_final, view=self)
         self.stop()
 
-
 @bot.command(name="dkpdetalle")
 @requiere_vinculacion()
-async def dkp_detalle(ctx, *, nombre_usuario: str):
+async def dkp_detalle(ctx, *, nombre_usuario: str = None):
     """
-    Muestra los cambios de DKP del usuario (nombre_usuario) en los últimos 7 días.
-    - Se puede también mencionar @usuario en vez de poner el nombre.
+    Muestra los cambios de DKP del usuario en los últimos 7 días.
+    - Sin argumentos: muestra el detalle del usuario que ejecuta el comando.
+    - Con nombre: muestra el detalle del usuario especificado.
+    - Con mención: muestra el detalle del usuario mencionado.
     """
     if ctx.message.mentions:
         member = ctx.message.mentions[0]
@@ -856,14 +857,38 @@ async def dkp_detalle(ctx, *, nombre_usuario: str):
             ))
             return
         nombre_usuario = found_name
-    else:
-        if nombre_usuario not in user_data:
+
+    elif nombre_usuario:
+        nombre_usuario_lower = nombre_usuario.lower()
+        found_name = None
+        for nombre, datos in user_data.items():
+            if nombre.lower() == nombre_usuario_lower:
+                found_name = nombre
+                break
+        if found_name is None:
             await ctx.send(embed=discord.Embed(
                 title="Usuario no encontrado",
                 description=f"No se encontró el usuario con nombre **{nombre_usuario}**.",
                 color=discord.Color.red()
             ))
             return
+        nombre_usuario = found_name
+
+    else:
+        usuario = ctx.author
+        found_name = None
+        for nombre, datos in user_data.items():
+            if datos.get("discord_id") == usuario.id:
+                found_name = nombre
+                break
+        if found_name is None:
+            await ctx.send(embed=discord.Embed(
+                title="No Vinculado",
+                description="No estás vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
+                color=discord.Color.red()
+            ))
+            return
+        nombre_usuario = found_name
 
     if nombre_usuario not in score_history or not score_history[nombre_usuario]:
         await ctx.send(embed=discord.Embed(
@@ -883,7 +908,11 @@ async def dkp_detalle(ctx, *, nombre_usuario: str):
         try:
             fecha_cambio = datetime.strptime(registro["timestamp"], "%Y-%m-%dT%H:%M:%S.%f")
         except ValueError:
-            fecha_cambio = datetime.strptime(registro["timestamp"], "%Y-%m-%dT%H:%M:%S")
+            try:
+                fecha_cambio = datetime.strptime(registro["timestamp"], "%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                logger.error(f"Formato de fecha inválido en registro de DKP para '{nombre_usuario}': {registro['timestamp']}")
+                continue
 
         if fecha_cambio >= hace_7_dias:
             delta = registro["delta"]
@@ -913,6 +942,7 @@ async def dkp_detalle(ctx, *, nombre_usuario: str):
         color=discord.Color.blue()
     )
     await ctx.send(embed=embed)
+    logger.info(f"Detalle DKP mostrado para '{nombre_usuario}' por '{ctx.author}'.")
 
 @bot.command(name="registroevento")
 @requiere_vinculacion(comando_admin=True)
