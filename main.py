@@ -8,9 +8,12 @@ import json
 import logging
 import requests
 from discord.ext import commands, tasks
+from discord.ui import View, Button, Select
+from discord import ButtonStyle, SelectOption
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from functools import wraps
+from typing import List
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -312,6 +315,524 @@ def requiere_vinculacion(comando_admin=False):
             return await func(ctx, *args, **kwargs)
         return wrapper
     return decorator
+
+async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listadenombres: List[str], channel: discord.TextChannel, executor: discord.User):
+    """
+    Procesa el evento y actualiza los datos de los usuarios.
+    
+    :param nombre_evento: Nombre del evento.
+    :param puntaje: Puntos DKP a asignar.
+    :param noresta: Si el evento resta DKP.
+    :param listadenombres: Lista de nombres de usuarios.
+    :param channel: Canal donde se enviarán los resultados.
+    :param executor: Usuario que ejecutó el comando.
+    """
+    if puntaje <= 0:
+        embed = discord.Embed(
+            title="DKP Inválido",
+            description="El DKP debe ser un número positivo.",
+            color=discord.Color.red()
+        )
+        await channel.send(embed=embed)
+        logger.warning(
+            f"Administrador '{executor}' intentó crear un evento '{nombre_evento}' con puntaje no positivo: {puntaje}."
+        )
+        return
+
+    user_data_lower = {ud.lower(): ud for ud in user_data.keys()}
+
+    usuarios_final = set()
+    no_encontrados = []
+    for user_name in listadenombres:
+        nombre_real = user_data_lower.get(user_name.lower())
+        if nombre_real:
+            usuarios_final.add(nombre_real)
+        else:
+            no_encontrados.append(user_name)
+
+    event_time = datetime.utcnow()
+    linked_users_at_event = set(user_data.keys())
+    events_info[nombre_evento] = {
+        "timestamp": event_time,
+        "linked_users": linked_users_at_event,
+        "late_users": set(),
+        "puntaje": puntaje,
+        "penalties": {}
+    }
+    logger.info(f"Evento '{nombre_evento}' agregado o actualizado en 'events_info' por administrador '{executor}'.")
+
+    old_scores = {nombre: datos["score"] for nombre, datos in user_data.items()}
+
+    estados_usuario = {}
+    if noresta:
+        for nombre, datos in user_data.items():
+            if datos.get("status", "normal") == "vacaciones":
+                estados_usuario[nombre] = "VACACIONES"
+                logger.debug(f"Usuario '{nombre}' está de vacaciones. Estado: VACACIONES.")
+                continue
+
+            if nombre in usuarios_final:
+                datos["score"] += puntaje
+                registrar_cambio_dkp(nombre, +puntaje, f"Evento {nombre_evento}: ASISTIÓ (noresta)")
+                logger.debug(f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. DKP +{puntaje}.")
+
+                if nombre_evento in datos.get("justified_events", set()):
+                    datos["justified_events"].remove(nombre_evento)
+                    logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para '{nombre}'.")
+            else:
+                pass
+
+            if (nombre_evento in datos.get("justified_events", set()) or
+                (datos.get("absence_until") and event_time <= datos["absence_until"])):
+                estados_usuario[nombre] = "JUSTIFICADO"
+            elif nombre in usuarios_final:
+                estados_usuario[nombre] = "ASISTIÓ"
+            else:
+                estados_usuario[nombre] = "NO ASISTIÓ"
+    else:
+        for nombre, datos in user_data.items():
+            if datos.get("status", "normal") == "vacaciones":
+                estados_usuario[nombre] = "VACACIONES"
+                logger.debug(f"Usuario '{nombre}' de vacaciones. Estado: VACACIONES.")
+                continue
+
+            absence_until = datos.get("absence_until")
+            justificado_by_days = absence_until and event_time <= absence_until
+            justificado_by_event = (nombre_evento in datos.get("justified_events", set()))
+            justificado_evento = justificado_by_days or justificado_by_event
+
+            if justificado_evento:
+                estado = "JUSTIFICADO"
+            elif nombre in usuarios_final:
+                estado = "ASISTIÓ"
+            else:
+                estado = "NO ASISTIÓ"
+
+            estados_usuario[nombre] = estado
+
+            if nombre in usuarios_final:
+                datos["score"] += puntaje
+                registrar_cambio_dkp(nombre, +puntaje, f"Evento {nombre_evento}: ASISTIÓ")
+                logger.debug(f"Usuario '{nombre}' asistió. DKP +{puntaje}.")
+
+                if justificado_by_event:
+                    datos["justified_events"].remove(nombre_evento)
+                    logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para '{nombre}'.")
+            else:
+                if justificado_evento:
+                    datos["score"] -= puntaje
+                    registrar_cambio_dkp(nombre, -puntaje, f"Evento {nombre_evento}: JUSTIFICADO")
+                    logger.debug(f"Usuario '{nombre}' justificado. DKP -{puntaje}.")
+
+                    if justificado_by_event:
+                        datos["justified_events"].remove(nombre_evento)
+                else:
+                    penalizacion = puntaje * 2
+                    datos["score"] -= penalizacion
+                    registrar_cambio_dkp(nombre, -penalizacion, f"Evento {nombre_evento}: NO ASISTIÓ")
+                    logger.debug(f"Usuario '{nombre}' no asistió sin justificación. DKP -{penalizacion}.")
+
+                    if nombre_evento in events_info:
+                        events_info[nombre_evento]["penalties"][nombre] = penalizacion
+                    else:
+                        logger.error(f"Evento '{nombre_evento}' no existe al asignar penalización.")
+                        await channel.send(embed=discord.Embed(
+                            title="Error Interno",
+                            description="Ocurrió un error al asignar penalizaciones. Contacta al administrador.",
+                            color=discord.Color.red()
+                        ))
+                        return
+
+    guardar_datos()
+    guardar_eventos()
+
+    all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
+    desc = "```\n"
+    desc += "{:<15} {:<15} {:<10} {:<10}\n".format("Nombre", "Estado", "Antes", "Después")
+    desc += "-"*55 + "\n"
+    for nombre, datos in all_users:
+        antes = old_scores.get(nombre, 0)
+        despues = datos["score"]
+        estado = estados_usuario.get(nombre, "ACTIVO")
+        desc += "{:<15} {:<15} {:<10} {:<10}\n".format(nombre, estado, str(antes), str(despues))
+    desc += "```"
+
+    embed = discord.Embed(
+        title=f"Evento: {nombre_evento}",
+        color=discord.Color.blurple(),
+        description=desc
+    )
+    await channel.send(embed=embed)
+    logger.info(f"Evento '{nombre_evento}' procesado y embed enviado por '{executor}'.")
+
+    if no_encontrados:
+        mensaje_no_encontrados = "No se encontraron los siguientes usuarios:\n" + ", ".join(no_encontrados)
+        await channel.send(embed=discord.Embed(
+            title="Usuarios no encontrados",
+            description=mensaje_no_encontrados,
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Usuarios no encontrados al crear el evento '{nombre_evento}': {no_encontrados}")
+
+class AsistenciaView(View):
+    def __init__(self, nombres_extraidos: List[str], nombres_coincidentes: List[str]):
+        super().__init__(timeout=300)
+        self.nombres_extraidos = nombres_extraidos.copy()
+        self.nombres_filtrados = nombres_coincidentes.copy()
+        self.current_page = 0
+        self.names_per_page = 25
+        self.total_pages = (len(self.nombres_filtrados) - 1) // self.names_per_page + 1
+        self.evento_seleccionado = None
+        self.dkp_seleccionado = None
+        self.resta_dkp = None
+
+        self.embed_initial = discord.Embed(
+            title="Asistencia del Evento",
+            description=(
+                "Lista de nombres extraídos de las imágenes. "
+                "Puedes copiarlos manualmente si lo deseas.\n\n"
+                "**Elimina los nombres que no están en el lugar:**"
+            ),
+            color=discord.Color.blue()
+        )
+        self.update_embed()
+
+        self.prev_button = Button(label="Anterior", style=ButtonStyle.primary, custom_id="prev_page")
+        self.next_button = Button(label="Siguiente", style=ButtonStyle.primary, custom_id="next_page")
+        self.cancel_button = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
+
+        self.prev_button.callback = self.prev_page
+        self.next_button.callback = self.next_page
+        self.cancel_button.callback = self.cancel_operation
+
+        self.add_item(self.prev_button)
+        self.add_item(self.next_button)
+        self.add_item(self.cancel_button)
+
+        self.select = Select(
+            placeholder="Selecciona los nombres a eliminar",
+            min_values=0,
+            max_values=self.get_max_values(),
+            options=self.get_current_options(),
+            custom_id="select_eliminar_nombres"
+        )
+        self.select.callback = self.remove_names
+        self.add_item(self.select)
+
+        self.siguiente_button = Button(label="SIGUIENTE", style=ButtonStyle.green, custom_id="siguiente")
+        self.siguiente_button.callback = self.iniciar_evento
+        self.add_item(self.siguiente_button)
+
+    def get_current_options(self):
+        start = self.current_page * self.names_per_page
+        end = start + self.names_per_page
+        current_page_names = sorted(self.nombres_filtrados[start:end])
+        return [SelectOption(label=nombre, value=nombre) for nombre in current_page_names]
+
+    def get_max_values(self):
+        start = self.current_page * self.names_per_page
+        end = start + self.names_per_page
+        current_page_names = sorted(self.nombres_filtrados[start:end])
+        return len(current_page_names) if current_page_names else 1
+
+    def update_embed(self):
+        start = self.current_page * self.names_per_page
+        end = start + self.names_per_page
+        current_page_names = sorted(self.nombres_filtrados[start:end])
+        nombres_str = "\n".join(current_page_names)
+        embed = self.embed_initial.copy()
+        embed.add_field(
+            name=f"Nombres ({self.current_page + 1}/{self.total_pages})",
+            value=f"```\n{nombres_str}\n```",
+            inline=False
+        )
+        self.embed = embed
+
+    async def remove_names(self, interaction: discord.Interaction):
+        nombres_eliminados = self.select.values
+        if nombres_eliminados:
+            for nombre in nombres_eliminados:
+                if nombre in self.nombres_filtrados:
+                    self.nombres_filtrados.remove(nombre)
+
+            self.total_pages = (len(self.nombres_filtrados) - 1) // self.names_per_page + 1
+
+            if self.current_page >= self.total_pages:
+                self.current_page = self.total_pages - 1 if self.total_pages > 0 else 0
+
+            self.select.options = self.get_current_options()
+            self.select.max_values = self.get_max_values()
+
+            self.update_embed()
+            await interaction.response.edit_message(embed=self.embed, view=self)
+            await interaction.followup.send(
+                f"Se han eliminado los siguientes nombres: {', '.join(nombres_eliminados)}.",
+                ephemeral=True
+            )
+
+    async def prev_page(self, interaction: discord.Interaction):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_embed()
+            self.select.options = self.get_current_options()
+            self.select.max_values = self.get_max_values()
+            await interaction.response.edit_message(embed=self.embed, view=self)
+        else:
+            await interaction.response.send_message("Ya estás en la primera página.", ephemeral=True)
+
+    async def next_page(self, interaction: discord.Interaction):
+        if self.current_page < self.total_pages - 1:
+            self.current_page += 1
+            self.update_embed()
+            self.select.options = self.get_current_options()
+            self.select.max_values = self.get_max_values()
+            await interaction.response.edit_message(embed=self.embed, view=self)
+        else:
+            await interaction.response.send_message("Ya estás en la última página.", ephemeral=True)
+
+    async def cancelar_y_mostrar_lista(self, interaction: discord.Interaction):
+        self.clear_items()
+        embed = discord.Embed(
+            title="Asistencia del Evento",
+            description=(
+                "Lista de nombres extraídos de las imágenes para copiar manualmente:\n"
+                "```\n" + "\n".join(self.nombres_filtrados) + "\n```"
+            ),
+            color=discord.Color.blue()
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+    async def cancel_operation(self, interaction: discord.Interaction):
+        await self.cancelar_y_mostrar_lista(interaction)
+
+    async def iniciar_evento(self, interaction: discord.Interaction):
+        self.clear_items()
+        embed = discord.Embed(
+            title="PARA QUE EVENTO?",
+            description="Selecciona el evento al que asistieron los nombres listados.",
+            color=discord.Color.green()
+        )
+
+        for evento in sorted(registered_events):
+            boton = Button(label=evento, style=ButtonStyle.primary, custom_id=f"evento_{evento}")
+            boton.callback = self.seleccionar_evento
+            self.add_item(boton)
+
+        cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
+        cancelar.callback = self.cancel_operation
+        self.add_item(cancelar)
+        self.embed = embed
+        await interaction.response.edit_message(embed=self.embed, view=self)
+
+    async def seleccionar_evento(self, interaction: discord.Interaction):
+        try:
+            evento_seleccionado = interaction.component.custom_id.replace("evento_", "")
+        except AttributeError:
+            try:
+                evento_seleccionado = interaction.data['custom_id'].replace("evento_", "")
+            except KeyError:
+
+                await interaction.response.send_message(
+                    "No se pudo determinar el evento seleccionado.",
+                    ephemeral=True
+                )
+                logger.error("No se pudo acceder al custom_id del componente en 'seleccionar_evento'.")
+                return
+
+        self.evento_seleccionado = evento_seleccionado
+        self.clear_items()
+        embed = discord.Embed(
+            title="CUANTO DKP?",
+            description="Selecciona la cantidad de DKP para asignar al evento.",
+            color=discord.Color.orange()
+        )
+
+        dkp_valores = [3, 9, 21, 45]
+        for dkp in dkp_valores:
+            boton = Button(label=str(dkp), style=ButtonStyle.primary, custom_id=f"dkp_{dkp}")
+            boton.callback = self.seleccionar_dkp
+            self.add_item(boton)
+
+        cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
+        cancelar.callback = self.cancel_operation
+        self.add_item(cancelar)
+        self.embed = embed
+        await interaction.response.edit_message(embed=self.embed, view=self)
+
+    async def seleccionar_dkp(self, interaction: discord.Interaction):
+        try:
+            self.dkp_seleccionado = int(interaction.component.custom_id.replace("dkp_", ""))
+        except AttributeError:
+            try:
+                self.dkp_seleccionado = int(interaction.data['custom_id'].replace("dkp_", ""))
+            except (KeyError, ValueError):
+                await interaction.response.send_message(
+                    "No se pudo determinar la cantidad de DKP seleccionada.",
+                    ephemeral=True
+                )
+                logger.error("No se pudo acceder al custom_id del componente en 'seleccionar_dkp'.")
+                return
+
+        self.clear_items()
+        embed = discord.Embed(
+            title="EL EVENTO RESTA DKP?",
+            description="¿El evento resta DKP?",
+            color=discord.Color.purple()
+        )
+        boton_si = Button(label="SI", style=ButtonStyle.danger, custom_id="resta_si")
+        boton_no = Button(label="NO", style=ButtonStyle.success, custom_id="resta_no")
+        boton_si.callback = self.seleccionar_resta
+        boton_no.callback = self.seleccionar_resta
+        self.add_item(boton_si)
+        self.add_item(boton_no)
+        cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
+        cancelar.callback = self.cancel_operation
+        self.add_item(cancelar)
+        self.embed = embed
+        await interaction.response.edit_message(embed=self.embed, view=self)
+
+    async def seleccionar_resta(self, interaction: discord.Interaction):
+        try:
+
+            decision = interaction.component.custom_id.replace("resta_", "").upper()
+        except AttributeError:
+
+            try:
+                decision = interaction.data['custom_id'].replace("resta_", "").upper()
+            except KeyError:
+                await interaction.response.send_message(
+                    "No se pudo determinar la opción seleccionada.",
+                    ephemeral=True
+                )
+                logger.error("No se pudo acceder al custom_id en 'seleccionar_resta'.")
+                return
+
+        self.resta_dkp = True if decision == "SI" else False
+        self.clear_items()
+        embed = discord.Embed(
+            title="CONFIRMAR",
+            description=(
+                f"**Evento:** {self.evento_seleccionado}\n"
+                f"**DKP:** {self.dkp_seleccionado}\n"
+                f"**Resta DKP:** {'SI' if self.resta_dkp else 'NO'}\n\n"
+                f"**Nombres:**\n```\n" + "\n".join(self.nombres_filtrados) + "\n```"
+            ),
+            color=discord.Color.gold()
+        )
+
+        confirmar = Button(label="CONFIRMAR", style=ButtonStyle.success, custom_id="confirmar")
+        cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
+        confirmar.callback = self.confirmar_operacion
+        cancelar.callback = self.cancel_operation
+        self.add_item(confirmar)
+        self.add_item(cancelar)
+        self.embed = embed
+        await interaction.response.edit_message(embed=self.embed, view=self)
+
+    async def confirmar_operacion(self, interaction: discord.Interaction):
+
+        noresta_str = "NORESTA" if self.resta_dkp else ""
+        listadenombres = self.nombres_filtrados
+        comando_evento = f"!evento {self.evento_seleccionado} {self.dkp_seleccionado} {noresta_str} " + " ".join(listadenombres)
+        comando_evento = comando_evento.strip()
+
+        canal_admin = bot.get_channel(CANAL_ADMIN)
+        if canal_admin is None:
+            await interaction.response.send_message(
+                "No se pudo encontrar el canal de administración.",
+                ephemeral=True
+            )
+            logger.error(f"No se pudo encontrar el canal con ID {CANAL_ADMIN}.")
+            return
+
+        await handle_evento(
+            nombre_evento=self.evento_seleccionado,
+            puntaje=self.dkp_seleccionado,
+            noresta=self.resta_dkp,
+            listadenombres=listadenombres,
+            channel=canal_admin,
+            executor=interaction.user
+        )
+
+        self.clear_items()
+        embed_final = discord.Embed(
+            title="Asistencia Registrada",
+            description="La asistencia ha sido registrada exitosamente en el canal de administración.",
+            color=discord.Color.green()
+        )
+        await interaction.response.edit_message(embed=embed_final, view=self)
+        self.stop()
+        
+async def seleccionar_resta(self, interaction: discord.Interaction):
+    try:
+        decision = interaction.component.custom_id.replace("resta_", "").upper()
+    except AttributeError:
+        try:
+            decision = interaction.data['custom_id'].replace("resta_", "").upper()
+        except KeyError:
+            await interaction.response.send_message(
+                "No se pudo determinar la opción seleccionada.",
+                ephemeral=True
+            )
+            logger.error("No se pudo acceder al custom_id en 'seleccionar_resta'.")
+            return
+
+    self.resta_dkp = True if decision == "SI" else False
+    self.clear_items()
+    embed = discord.Embed(
+        title="CONFIRMAR",
+        description=(
+            f"**Evento:** {self.evento_seleccionado}\n"
+            f"**DKP:** {self.dkp_seleccionado}\n"
+            f"**Resta DKP:** {'SI' if self.resta_dkp else 'NO'}\n\n"
+            f"**Nombres:**\n```\n" + "\n".join(self.nombres_filtrados) + "\n```"
+        ),
+        color=discord.Color.gold()
+    )
+    confirmar = Button(label="CONFIRMAR", style=ButtonStyle.success, custom_id="confirmar")
+    cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
+    confirmar.callback = self.confirmar_operacion
+    cancelar.callback = self.cancel_operation
+    self.add_item(confirmar)
+    self.add_item(cancelar)
+    self.embed = embed
+    await interaction.response.edit_message(embed=self.embed, view=self)
+
+
+    async def confirmar_operacion(self, interaction: discord.Interaction):
+        noresta_str = "NORESTA" if self.resta_dkp else ""
+        listadenombres = self.nombres_filtrados
+        comando_evento = f"!evento {self.evento_seleccionado} {self.dkp_seleccionado} {noresta_str} " + " ".join(listadenombres)
+        comando_evento = comando_evento.strip()
+
+        canal_admin = bot.get_channel(CANAL_ADMIN)
+        if canal_admin is None:
+            await interaction.response.send_message(
+                "No se pudo encontrar el canal de administración.",
+                ephemeral=True
+            )
+            logger.error(f"No se pudo encontrar el canal con ID {CANAL_ADMIN}.")
+            return
+
+        await handle_evento(
+            nombre_evento=self.evento_seleccionado,
+            puntaje=self.dkp_seleccionado,
+            noresta=self.resta_dkp,
+            listadenombres=listadenombres,
+            channel=canal_admin,
+            executor=interaction.user
+        )
+
+        self.clear_items()
+        embed_final = discord.Embed(
+            title="Asistencia Registrada",
+            description="La asistencia ha sido registrada exitosamente en el canal de administración.",
+            color=discord.Color.green()
+        )
+        await interaction.response.edit_message(embed=embed_final, view=self)
+        self.stop()
+
 
 @bot.command(name="dkpdetalle")
 @requiere_vinculacion()
@@ -716,10 +1237,15 @@ def clean_name(line: str) -> str:
 @bot.command(name="asistencia")
 @requiere_vinculacion(comando_admin=True)
 async def asistencia(ctx):
+    """
+    Comando interactivo para registrar asistencia a un evento.
+    Uso: !asistencia [adjuntar imágenes con nombres]
+    """
     if not ctx.message.attachments:
         await ctx.send("Por favor, adjunta al menos una imagen PNG/JPG con la lista de nombres.")
         return
 
+    nombres_extraidos = []
     nombres_coincidentes = set()
     user_data_lower = {ud.lower(): ud for ud in user_data.keys()}
 
@@ -751,6 +1277,7 @@ async def asistencia(ctx):
                 if parsed_results:
                     ocr_text = parsed_results[0].get("ParsedText", "")
                     lineas = [l.strip() for l in ocr_text.splitlines() if l.strip()]
+                    nombres_extraidos.extend(lineas)
 
                     for linea in lineas:
                         linea_limpia = clean_name(linea)
@@ -767,196 +1294,33 @@ async def asistencia(ctx):
             await ctx.send(f"Error al conectar con OCR.Space para {attachment.filename}: {e}")
             continue
 
+    if not nombres_extraidos:
+        await ctx.send("No se extrajeron nombres de las imágenes proporcionadas.")
+        return
+
     if not nombres_coincidentes:
         await ctx.send("No hubo coincidencias con user_data en las imágenes.")
         return
 
-    coincidencias_str = " ".join(sorted(nombres_coincidentes))
-
-    embed = discord.Embed(
-        title="Asistencia del evento",
-        description="Coincidencias encontradas",
-        color=discord.Color.green()
-    )
-    embed.add_field(
-        name="Nombres",
-        value=f"```\n{coincidencias_str}\n```",
-        inline=False
-    )
-
-    await ctx.send(embed=embed)
+    view = AsistenciaView(nombres_extraidos, list(nombres_coincidentes))
+    await ctx.send(embed=view.embed, view=view)
+    logger.info(f"Comando !asistencia ejecutado por {ctx.author}. Nombres extraídos: {nombres_extraidos}")
 
 @bot.command(name="evento")
 @requiere_vinculacion(comando_admin=True)
 async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
-    if puntaje <= 0:
-        await ctx.send(embed=discord.Embed(
-            title="DKP inválido",
-            description="El DKP debe ser un número positivo.",
-            color=discord.Color.red()
-        ))
-        logger.warning(
-            f"Administrador '{ctx.author}' intentó crear un evento '{nombre_evento}' con puntaje no positivo: {puntaje}."
-        )
-        return
-
-    usuarios_mencionados = list(usuarios_mencionados)
-    logger.debug(f"Usuarios mencionados (original): {usuarios_mencionados}")
-
+    """
+    Comando para registrar un evento y asignar DKP a los usuarios.
+    Uso: !evento <nombre_evento> <puntaje> [usuarios] [NORESTA]
+    """
     noresta = False
     usuarios_mencionados_lower = [u.lower() for u in usuarios_mencionados]
     if 'noresta' in usuarios_mencionados_lower:
         noresta = True
         usuarios_mencionados = [u for u in usuarios_mencionados if u.lower() != 'noresta']
-        logger.info(f"'noresta' activado para el evento '{nombre_evento}'.")
+        logger.info(f"'NORESTA' activado para el evento '{nombre_evento}'.")
 
-    usuarios_final = set()
-    no_encontrados = []
-
-    for user_name_in_command in usuarios_mencionados:
-        nombre_real = next(
-            (nombre_registrado for nombre_registrado in user_data
-             if nombre_registrado.lower() == user_name_in_command.lower()),
-            None
-        )
-        if nombre_real is None:
-            no_encontrados.append(user_name_in_command)
-            logger.warning(f"Usuario mencionado '{user_name_in_command}' no encontrado en 'user_data'.")
-        else:
-            usuarios_final.add(nombre_real)
-            logger.debug(f"'{user_name_in_command}' coincide con '{nombre_real}' en user_data.")
-
-    logger.debug(f"Usuarios finales (match en user_data): {usuarios_final}")
-
-    old_scores = {nombre: datos["score"] for nombre, datos in user_data.items()}
-    old_justificado = {nombre: (nombre_evento in datos["justified_events"]) for nombre, datos in user_data.items()}
-
-    event_time = datetime.utcnow()
-    linked_users_at_event = set(user_data.keys())
-    events_info[nombre_evento] = {
-        "timestamp": event_time,
-        "linked_users": linked_users_at_event,
-        "late_users": set(),
-        "puntaje": puntaje,
-        "penalties": {}
-    }
-    logger.info(f"Evento '{nombre_evento}' agregado o actualizado en 'events_info' por administrador '{ctx.author}'.")
-
-    estados_usuario = {}
-
-    if noresta:
-        for nombre, datos in user_data.items():
-            if datos.get("status", "normal") == "vacaciones":
-                estados_usuario[nombre] = "VACACIONES"
-                logger.debug(f"Usuario '{nombre}' está de vacaciones. Estado: VACACIONES.")
-                continue
-
-            if nombre in usuarios_final:
-                datos["score"] += puntaje
-                registrar_cambio_dkp(nombre, +puntaje, f"Evento {nombre_evento}: ASISTIÓ (noresta)")
-                logger.debug(
-                    f"Usuario '{nombre}' asistió al evento '{nombre_evento}'. DKP +{puntaje}."
-                )
-
-                if nombre_evento in datos.get("justified_events", set()):
-                    datos["justified_events"].remove(nombre_evento)
-                    logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para '{nombre}'.")
-            else:
-                pass
-
-            if (nombre_evento in datos.get("justified_events", set())
-                or (datos.get("absence_until") and event_time <= datos["absence_until"])):
-                estados_usuario[nombre] = "JUSTIFICADO"
-            elif nombre in usuarios_final:
-                estados_usuario[nombre] = "ASISTIÓ"
-            else:
-                estados_usuario[nombre] = "NO ASISTIÓ"
-
-    else:
-        for nombre, datos in user_data.items():
-            if datos.get("status", "normal") == "vacaciones":
-                estados_usuario[nombre] = "VACACIONES"
-                logger.debug(f"Usuario '{nombre}' de vacaciones. Estado: VACACIONES.")
-                continue
-
-            absence_until = datos.get("absence_until")
-            justificado_by_days = absence_until and event_time <= absence_until
-            justificado_by_event = (nombre_evento in datos.get("justified_events", set()))
-            justificado_evento = justificado_by_days or justificado_by_event
-
-            if justificado_evento:
-                estado = "JUSTIFICADO"
-            elif nombre in usuarios_final:
-                estado = "ASISTIÓ"
-            else:
-                estado = "NO ASISTIÓ"
-
-            estados_usuario[nombre] = estado
-
-            if nombre in usuarios_final:
-                datos["score"] += puntaje
-                registrar_cambio_dkp(nombre, +puntaje, f"Evento {nombre_evento}: ASISTIÓ")
-                logger.debug(f"Usuario '{nombre}' asistió. DKP +{puntaje}.")
-
-                if justificado_by_event:
-                    datos["justified_events"].remove(nombre_evento)
-                    logger.debug(f"Evento '{nombre_evento}' removido de 'justified_events' para '{nombre}'.")
-
-            else:
-                if justificado_evento:
-                    datos["score"] -= puntaje
-                    registrar_cambio_dkp(nombre, -puntaje, f"Evento {nombre_evento}: JUSTIFICADO")
-                    logger.debug(f"Usuario '{nombre}' justificado. DKP -{puntaje}.")
-
-                    if justificado_by_event:
-                        datos["justified_events"].remove(nombre_evento)
-                else:
-                    penalizacion = puntaje * 2
-                    datos["score"] -= penalizacion
-                    registrar_cambio_dkp(nombre, -penalizacion, f"Evento {nombre_evento}: NO ASISTIÓ")
-                    logger.debug(f"Usuario '{nombre}' no asistió sin justificación. DKP -{penalizacion}.")
-
-                    if nombre_evento in events_info:
-                        events_info[nombre_evento]["penalties"][nombre] = penalizacion
-                    else:
-                        logger.error(f"Evento '{nombre_evento}' no existe al asignar penalización.")
-                        await ctx.send(embed=discord.Embed(
-                            title="Error Interno",
-                            description="Ocurrió un error al asignar penalizaciones. Contacta al administrador.",
-                            color=discord.Color.red()
-                        ))
-                        return
-
-    guardar_datos()
-    guardar_eventos()
-
-    all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
-    desc = "```\n"
-    desc += "{:<15} {:<15} {:<10} {:<10}\n".format("Nombre", "Estado", "Antes", "Después")
-    desc += "-"*55 + "\n"
-    for nombre, datos in all_users:
-        antes = old_scores.get(nombre, 0)
-        despues = datos["score"]
-        estado = estados_usuario.get(nombre, "ACTIVO")
-        desc += "{:<15} {:<15} {:<10} {:<10}\n".format(nombre, estado, str(antes), str(despues))
-    desc += "```"
-
-    embed = discord.Embed(
-        title=f"Evento: {nombre_evento}",
-        color=discord.Color.blurple(),
-        description=desc
-    )
-    await ctx.send(embed=embed)
-    logger.info(f"Evento '{nombre_evento}' procesado y embed enviado por '{ctx.author}'.")
-
-    if no_encontrados:
-        mensaje_no_encontrados = "No se encontraron los siguientes usuarios:\n" + ", ".join(no_encontrados)
-        await ctx.send(embed=discord.Embed(
-            title="Usuarios no encontrados",
-            description=mensaje_no_encontrados,
-            color=discord.Color.red()
-        ))
-        logger.warning(f"Usuarios no encontrados al crear el evento '{nombre_evento}': {no_encontrados}")
+    await handle_evento(nombre_evento, puntaje, noresta, list(usuarios_mencionados), ctx.channel, ctx.author)
 
 
 @bot.command(name="vincular")
