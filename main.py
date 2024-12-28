@@ -476,7 +476,7 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
 
 class AsistenciaView(View):
     def __init__(self, nombres_extraidos: List[str], nombres_coincidentes: List[str]):
-        super().__init__(timeout=300)
+        super().__init__(timeout=1700)
         self.nombres_extraidos = nombres_extraidos.copy()
         self.nombres_filtrados = nombres_coincidentes.copy()
         self.current_page = 0
@@ -727,6 +727,7 @@ class AsistenciaView(View):
         await interaction.response.edit_message(embed=self.embed, view=self)
 
     async def confirmar_operacion(self, interaction: discord.Interaction):
+        noresta = not self.resta_dkp
         noresta_str = "NORESTA" if self.resta_dkp else ""
         listadenombres = self.nombres_filtrados
         comando_evento = f"!evento {self.evento_seleccionado} {self.dkp_seleccionado} {noresta_str} " + " ".join(listadenombres)
@@ -744,7 +745,7 @@ class AsistenciaView(View):
         await handle_evento(
             nombre_evento=self.evento_seleccionado,
             puntaje=self.dkp_seleccionado,
-            noresta=self.resta_dkp,
+            noresta=noresta,
             listadenombres=listadenombres,
             channel=canal_admin,
             executor=interaction.user
