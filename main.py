@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import List
+from zoneinfo import ZoneInfo
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -23,6 +24,8 @@ CANAL_AUSENCIAS = int(os.getenv("CANAL_AUSENCIAS"))
 CANAL_TARDE = int(os.getenv("CANAL_TARDE"))
 CANAL_CONSULTA = int(os.getenv("CANAL_CONSULTA"))
 ADMINS_IDS = set(map(int, os.getenv("ADMINS_IDS").split(',')))
+
+ZONA_HORARIA = ZoneInfo("America/Argentina/Buenos_Aires")
 
 logging.basicConfig(
     filename='bot_commands.log',
@@ -825,7 +828,7 @@ async def dkp_detalle(ctx, *, nombre_usuario: str = None):
         ))
         return
 
-    ahora = datetime.utcnow()
+    ahora = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
     hace_7_dias = ahora - timedelta(days=7)
 
     cambios_usuario = score_history[nombre_usuario]
@@ -833,10 +836,10 @@ async def dkp_detalle(ctx, *, nombre_usuario: str = None):
     cambios_7_dias = []
     for registro in cambios_usuario:
         try:
-            fecha_cambio = datetime.strptime(registro["timestamp"], "%Y-%m-%dT%H:%M:%S.%f")
+            fecha_cambio = datetime.strptime(registro["timestamp"], "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=ZoneInfo("UTC"))
         except ValueError:
             try:
-                fecha_cambio = datetime.strptime(registro["timestamp"], "%Y-%m-%dT%H:%M:%S")
+                fecha_cambio = datetime.strptime(registro["timestamp"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=ZoneInfo("UTC"))
             except ValueError:
                 logger.error(f"Formato de fecha inválido en registro de DKP para '{nombre_usuario}': {registro['timestamp']}")
                 continue
@@ -859,7 +862,8 @@ async def dkp_detalle(ctx, *, nombre_usuario: str = None):
     desc = "```\nFecha               |  ΔDKP  | Razón\n"
     desc += "-"*50 + "\n"
     for (fecha, delta, razon) in cambios_7_dias:
-        fecha_str = fecha.strftime("%Y-%m-%d %H:%M")
+        fecha_gmt3 = fecha.astimezone(ZONA_HORARIA)
+        fecha_str = fecha_gmt3.strftime("%Y-%m-%d %H:%M")
         desc += f"{fecha_str:<18} | {str(delta):>5} | {razon}\n"
     desc += "```"
 
