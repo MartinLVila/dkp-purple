@@ -4,6 +4,7 @@ import json
 import logging
 import requests
 from discord.ext import commands, tasks
+from discord.ext.commands import CommandNotFound
 from discord.ui import View, Button, Select
 from discord import ButtonStyle, SelectOption
 from dotenv import load_dotenv
@@ -1686,17 +1687,48 @@ async def limpiar_eventos_justificados_expirados():
 ############################
 @bot.event
 async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("Faltan argumentos para este comando.")
+    if isinstance(error, CommandNotFound):
+        embed = discord.Embed(
+            title="🔍 Comando No Encontrado",
+            description=(
+                f"El comando `{ctx.message.content}` no existe.\n"
+                "Por favor, verifica la lista de comandos disponibles usando `!info`."
+            ),
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+        logger.warning(f"Comando no encontrado: '{ctx.message.content}' usado por '{ctx.author}'.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        embed = discord.Embed(
+            title="❗ Argumento Faltante",
+            description="Faltan argumentos para este comando. Por favor, revisa el uso correcto con `!info`.",
+            color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
         logger.warning(f"Comando '{ctx.command}' de '{ctx.author}' faltando argumentos.")
     elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("No tienes permisos para usar este comando.")
+        embed = discord.Embed(
+            title="🚫 Permiso Denegado",
+            description="No tienes permisos para usar este comando.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         logger.warning(f"Comando '{ctx.command}' de '{ctx.author}' sin permisos.")
     elif isinstance(error, commands.BadArgument):
-        await ctx.send("Tipo de argumento inválido.")
+        embed = discord.Embed(
+            title="⚠️ Argumento Inválido",
+            description="Tipo de argumento inválido. Por favor, verifica el comando y los argumentos utilizados.",
+            color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
         logger.warning(f"Comando '{ctx.command}' de '{ctx.author}' con argumentos inválidos.")
     else:
-        await ctx.send("Ocurrió un error al procesar el comando.")
+        embed = discord.Embed(
+            title="❌ Error Interno",
+            description="Ocurrió un error al procesar el comando. Por favor, inténtalo de nuevo más tarde.",
+            color=discord.Color.dark_red()
+        )
+        await ctx.send(embed=embed)
         logger.error(f"Error en comando '{ctx.command}' usado por '{ctx.author}' (ID: {ctx.author.id}): {error}")
         print(f"Error: {error}")
 
