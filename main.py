@@ -479,6 +479,50 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
         ))
         logger.warning(f"Usuarios no encontrados al crear el evento '{nombre_evento}': {no_encontrados}")
 
+    no_asistieron = [nombre for nombre, estado in estados_usuario.items() if estado == "NO ASISTIÓ"]
+
+    if no_asistieron:
+        canal_admin = bot.get_channel(CANAL_ADMIN)
+        canal_llegue = bot.get_channel(CANAL_LLEGUE)
+
+        if not canal_admin or not canal_llegue:
+            logger.error(f"No se pudo encontrar el canal de administración ({CANAL_ADMIN}) o el canal de llegadas ({CANAL_LLEGUE}).")
+            return
+
+        members_no_asistieron = []
+        for nombre_usuario in no_asistieron:
+            discord_id = user_data[nombre_usuario].get("discord_id")
+            if not discord_id:
+                logger.warning(f"Usuario '{nombre_usuario}' no tiene 'discord_id' registrado.")
+                continue
+
+            member = discord.utils.get(channel.guild.members, id=discord_id)
+            if not member:
+                logger.warning(f"No se pudo encontrar el miembro de Discord con el ID '{discord_id}' para el usuario '{nombre_usuario}'.")
+                continue
+
+            members_no_asistieron.append(member)
+
+        if members_no_asistieron:
+            menciones = ', '.join([member.mention for member in members_no_asistieron])
+
+            embed_notificacion = discord.Embed(
+                title="⏰ Justificación de Ausencia",
+                description=(
+                    f"{menciones}, no asistieron al evento **{nombre_evento}**.\n"
+                    f"Tienen **1 hora** para justificar su ausencia usando el comando `!llegue` en {canal_llegue.mention}.\n"
+                    f"**Evidencia de Asistencia:** Por favor, proporcionen evidencia de su presencia si fue un error."
+                ),
+                color=discord.Color.red()
+            )
+            embed_notificacion.set_footer(text="Tiempo límite: 1 hora desde el evento.")
+
+            try:
+                await canal_admin.send(embed=embed_notificacion)
+                logger.info(f"Notificación consolidada enviada a {len(members_no_asistieron)} usuarios en '{nombre_evento}'.")
+            except Exception as e:
+                logger.error(f"Error al enviar notificación consolidada: {e}")
+
 class AsistenciaView(View):
     def __init__(self, nombres_extraidos: List[str], nombres_coincidentes: List[str]):
         super().__init__(timeout=1700)
