@@ -1463,11 +1463,64 @@ async def vacaciones(ctx, nombre: str):
         logger.info(f"Administrador '{ctx.author}' desactivó vacaciones para '{nombre}'.")
 
 ############################
-# Comando !llegue_tarde
+#Comando !info
 ############################
-@bot.command(name="llegue_tarde")
+@bot.command(name="info")
 @requiere_vinculacion()
-async def llegue_tarde(ctx, nombre_evento: str):
+async def info(ctx):
+    """
+    Proporciona una lista de comandos disponibles para el usuario.
+    - Usuarios Regulares: Muestra comandos que pueden usar.
+    - Administradores: Muestra comandos adicionales de administración.
+    """
+    embed = discord.Embed(
+        title="Información de Comandos",
+        description="Aquí tienes una lista de los comandos que puedes utilizar:",
+        color=discord.Color.blue()
+    )
+    
+    user_commands = [
+        ("!dkp", "Consulta tu DKP o el de otro usuario."),
+        ("!dkpdetalle", "Muestra los cambios de DKP en los últimos 7 días."),
+        ("!ausencia", "Justifica una ausencia por días o evento."),
+        ("!llegue", "Justifica tu llegada tardía a un evento.")
+    ]
+    
+    admin_commands = [
+        ("!vacaciones <nombre_usuario>", "Activa o desactiva el estado de vacaciones de un usuario."),
+        ("!registroevento <nombre_evento>", "Registra un evento permanente (son los botones de asistencia)."),
+        ("!borrarevento <nombre_evento>", "Elimina un evento permanente (son los botones de asistencia)."),
+        ("!evento <nombre_evento> <puntaje> [usuarios] [NORESTA]", "Registra un evento y asigna DKP."),
+        ("!vincular <miembro> <nombre>", "Vincula un usuario de Discord con un nombre en el sistema DKP."),
+        ("!borrarusuario <nombre>", "Elimina un usuario del sistema DKP."),
+        ("!sumardkp <nombre> <puntos>", "Suma puntos DKP a un usuario."),
+        ("!restardkp <miembro> <puntos>", "Resta puntos DKP a un usuario.")
+    ]
+    
+    embed.add_field(
+        name="🔹 Comandos de Usuario",
+        value="\n".join([f"`{cmd}` - {desc}" for cmd, desc in user_commands]),
+        inline=False
+    )
+    
+    if es_admin(ctx):
+        embed.add_field(
+            name="🔸 Comandos Administrativos",
+            value="\n".join([f"`{cmd}` - {desc}" for cmd, desc in admin_commands]),
+            inline=False
+        )
+    
+    embed.set_footer(text="Usa !dkp para más información sobre tus puntos DKP.")
+    
+    await ctx.send(embed=embed)
+    logger.info(f"Comando !info ejecutado por '{ctx.author}' (ID: {ctx.author.id}).")
+
+############################
+# Comando !llegue
+############################
+@bot.command(name="llegue")
+@requiere_vinculacion()
+async def llegue(ctx, nombre_evento: str):
     """
     Permite a un usuario justificar su llegada tardía a un evento.
     - Solo se puede usar dentro de los 20 minutos posteriores a !evento NOMBREEVENTO.
@@ -1479,7 +1532,7 @@ async def llegue_tarde(ctx, nombre_evento: str):
             description="Este comando solo puede usarse en el canal designado para llegadas tardías.",
             color=discord.Color.red()
         ))
-        logger.warning(f"Usuario '{ctx.author}' intentó usar !llegue_tarde en el canal equivocado.")
+        logger.warning(f"Usuario '{ctx.author}' intentó usar !llegue en el canal equivocado.")
         return
 
     if nombre_evento not in events_info:
