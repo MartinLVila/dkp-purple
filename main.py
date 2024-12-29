@@ -1530,7 +1530,7 @@ async def info(ctx):
 async def llegue(ctx, nombre_evento: str):
     """
     Permite a un usuario justificar su llegada tardía a un evento.
-    - Solo se puede usar dentro de los 20 minutos posteriores a !evento NOMBREEVENTO.
+    - Solo se puede usar dentro de 1 hora posterior a !evento NOMBREEVENTO.
     - Solo se puede usar una vez por usuario por evento en el canal de ausencias.
     """
     if ctx.channel.id != CANAL_TARDE:
@@ -1555,10 +1555,10 @@ async def llegue(ctx, nombre_evento: str):
     event_time = event["timestamp"]
     current_time = datetime.utcnow()
 
-    if current_time > event_time + timedelta(minutes=20):
+    if current_time > event_time + timedelta(minutes=60):
         await ctx.send(embed=discord.Embed(
             title="Tiempo Expirado",
-            description=f"Ya pasaron más de 20 minutos para justificar llegada tardía al evento **{nombre_evento}**.",
+            description=f"Ya pasó más de **1 hora** para justificar tu llegada tardía al evento **{nombre_evento}**.",
             color=discord.Color.red()
         ))
         logger.info(f"Usuario '{ctx.author}' tardó más de 20 mins para justificar tardanza en '{nombre_evento}'.")
