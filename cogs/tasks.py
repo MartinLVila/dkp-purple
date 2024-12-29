@@ -1,3 +1,4 @@
+import discord
 from discord.ext import commands, tasks
 from data_manager import events_info, guardar_eventos, user_data, guardar_datos, logger
 from datetime import datetime, timedelta
@@ -47,7 +48,6 @@ class Tasks(commands.Cog):
         for nombre_evento, info in list(events_info.items()):
             evento_time = info["timestamp"]
             if ahora > evento_time + timedelta(minutes=20):
-                # Aquí podrías añadir lógica adicional si es necesario
                 del events_info[nombre_evento]
                 modificados = True
                 logger.info(f"Evento '{nombre_evento}' (justificado) eliminado por limpieza.")

@@ -4,6 +4,27 @@ from utils import requiere_vinculacion
 from data_manager import handle_evento, user_data, events_info, registered_events, CANAL_ADMIN, CANAL_TARDE, guardar_eventos, guardar_datos, logger
 from views import AsistenciaView
 from main import bot
+import requests
+
+def clean_name(line: str) -> str:
+    """
+    Reemplaza substrings por nombres esperados
+    ToDo: arregarlo
+    """
+    lower_line = line.lower()
+
+    if "abyss" in lower_line:
+        return "abyss"
+    if "mob" in lower_line:
+        return "mob"
+    if "killa" in lower_line:
+        return "Killa"
+    if "nebu" in lower_line:
+        return "xNebu"
+    if "tinta china" in lower_line:
+        return "ャンクス"
+
+    return line
 
 class Attendance(commands.Cog):
     def __init__(self, bot):
@@ -23,6 +44,8 @@ class Attendance(commands.Cog):
         nombres_extraidos = []
         nombres_coincidentes = set()
         user_data_lower = {ud.lower(): ud for ud in user_data.keys()}
+
+        OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY")
 
         for attachment in ctx.message.attachments:
             filename_lower = attachment.filename.lower()

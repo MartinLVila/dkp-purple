@@ -168,6 +168,7 @@ class Absence(commands.Cog):
                     color=discord.Color.yellow()
                 ))
                 logger.info(f"Usuario '{nombre_usuario}' justificó ausencia para el evento '{nombre_evento}'.")
+                return
 
     @commands.command(name="ausencia_vacaciones")
     @requiere_vinculacion(comando_admin=True)
