@@ -1,7 +1,7 @@
 from functools import wraps
 import discord
 from discord.ext import commands
-from data_manager import user_data, ADMINS_IDS, logger
+from data_manager import user_data, logger
 
 def es_admin(ctx):
     return (ctx.author.id in ADMINS_IDS)
