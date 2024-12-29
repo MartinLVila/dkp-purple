@@ -1494,7 +1494,8 @@ async def info(ctx):
         ("!vincular <miembro> <nombre>", "Vincula un usuario de Discord con un nombre en el sistema DKP."),
         ("!borrarusuario <nombre>", "Elimina un usuario del sistema DKP."),
         ("!sumardkp <nombre> <puntos>", "Suma puntos DKP a un usuario."),
-        ("!restardkp <miembro> <puntos>", "Resta puntos DKP a un usuario.")
+        ("!restardkp <miembro> <puntos>", "Resta puntos DKP a un usuario."),
+        ("!asistencia <imagenes>", "Proceso interactivo para generar el DKP")
     ]
     
     embed.add_field(
