@@ -1415,53 +1415,52 @@ async def restardkp(ctx, member: discord.Member, puntos_a_restar: int):
 
 
 ############################
-# Comandos para Gestionar Vacaciones
+# Comando para Gestionar Vacaciones
 ############################
-@bot.command(name="ausencia_vacaciones")
+@bot.command(name="vacaciones")
 @requiere_vinculacion(comando_admin=True)
-async def ausencia_vacaciones(ctx, nombre: str):
+async def vacaciones(ctx, nombre: str):
+    """
+    Activa o desactiva el estado de vacaciones para un usuario.
+    Uso: !vacaciones <nombre_usuario>
+    """
+    nombre = nombre.strip()
+    
     if nombre not in user_data:
         await ctx.send(embed=discord.Embed(
             title="Usuario no encontrado",
             description=f"No se encontró el usuario con nombre **{nombre}**.",
             color=discord.Color.red()
         ))
-        logger.warning(f"Administrador '{ctx.author}' intentó marcar vacaciones a '{nombre}' no existente.")
+        logger.warning(f"Administrador '{ctx.author}' intentó cambiar vacaciones para usuario no existente '{nombre}'.")
         return
-
-    user_data[nombre]["status"] = "vacaciones"
-    guardar_datos()
-    await ctx.send(embed=discord.Embed(
-        title="Estado Actualizado",
-        description=f"El usuario **{nombre}** ha sido marcado como **VACACIONES**.",
-        color=discord.Color.yellow()
-    ))
-    logger.info(f"Administrador '{ctx.author}' marcó a '{nombre}' como VACACIONES.")
-
-
-@bot.command(name="ausencia_volvio")
-@requiere_vinculacion(comando_admin=True)
-async def ausencia_volvio(ctx, nombre: str):
-    if nombre not in user_data:
+    
+    estado_actual = user_data[nombre].get("status", "normal")
+    
+    if estado_actual != "vacaciones":
+        user_data[nombre]["status"] = "vacaciones"
+        user_data[nombre]["absence_until"] = None
+        user_data[nombre]["justified_events"].clear()
+        guardar_datos()
+        
         await ctx.send(embed=discord.Embed(
-            title="Usuario no encontrado",
-            description=f"No se encontró el usuario con nombre **{nombre}**.",
-            color=discord.Color.red()
+            title="Vacaciones Activadas",
+            description=f"El usuario **{nombre}** ha sido marcado como **VACACIONES**.",
+            color=discord.Color.yellow()
         ))
-        logger.warning(f"Administrador '{ctx.author}' intentó marcar activo a usuario '{nombre}' no existente.")
-        return
-
-    user_data[nombre]["status"] = "normal"
-    user_data[nombre]["absence_until"] = None
-    user_data[nombre]["justified_events"].clear()
-    guardar_datos()
-    await ctx.send(embed=discord.Embed(
-        title="Estado Actualizado",
-        description=f"El usuario **{nombre}** ha vuelto de **VACACIONES** y ahora está **ACTIVO**.",
-        color=discord.Color.green()
-    ))
-    logger.info(f"Administrador '{ctx.author}' marcó a '{nombre}' como ACTIVO tras vacaciones.")
-
+        logger.info(f"Administrador '{ctx.author}' activó vacaciones para '{nombre}'.")
+    else:
+        user_data[nombre]["status"] = "normal"
+        user_data[nombre]["absence_until"] = None
+        user_data[nombre]["justified_events"].clear()
+        guardar_datos()
+        
+        await ctx.send(embed=discord.Embed(
+            title="Vacaciones Desactivadas",
+            description=f"El usuario **{nombre}** ha vuelto a estar **ACTIVO**.",
+            color=discord.Color.green()
+        ))
+        logger.info(f"Administrador '{ctx.author}' desactivó vacaciones para '{nombre}'.")
 
 ############################
 # Comando !llegue_tarde
