@@ -38,7 +38,12 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    help_command=None,
+    case_insensitive=True
+)
 
 DATA_FILE = "scores.json"
 EVENTS_FILE = "events.json"
