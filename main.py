@@ -483,10 +483,10 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
 
     if no_asistieron:
         canal_admin = bot.get_channel(CANAL_ADMIN)
-        canal_llegue = bot.get_channel(CANAL_LLEGUE)
+        canal_tarde = bot.get_channel(CANAL_TARDE)
 
-        if not canal_admin or not canal_llegue:
-            logger.error(f"No se pudo encontrar el canal de administración ({CANAL_ADMIN}) o el canal de llegadas ({CANAL_LLEGUE}).")
+        if not canal_admin or not canal_tarde:
+            logger.error(f"No se pudo encontrar el canal de administración ({CANAL_ADMIN}) o el canal de llegadas ({CANAL_TARDE}).")
             return
 
         members_no_asistieron = []
@@ -510,7 +510,7 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
                 title="⏰ Justificación de Ausencia",
                 description=(
                     f"{menciones}, no asistieron al evento **{nombre_evento}**.\n"
-                    f"Tienen **1 hora** para justificar su ausencia usando el comando `!llegue` en {canal_llegue.mention}.\n"
+                    f"Tienen **1 hora** para justificar su ausencia usando el comando `!llegue` en {canal_tarde.mention}.\n"
                     f"**Evidencia de Asistencia:** Por favor, proporcionen evidencia de su presencia si fue un error."
                 ),
                 color=discord.Color.red()
