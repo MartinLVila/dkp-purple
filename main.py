@@ -5,7 +5,7 @@ import logging
 import requests
 from discord.ext import commands, tasks
 from discord.ext.commands import CommandNotFound
-from discord.ui import View, Button, Select
+from discord.ui import View, Button, Select, Modal, InputText
 from discord import ButtonStyle, SelectOption
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -23,6 +23,16 @@ CANAL_CONSULTA = int(os.getenv("CANAL_CONSULTA"))
 ADMINS_IDS = set(map(int, os.getenv("ADMINS_IDS").split(',')))
 
 ZONA_HORARIA = ZoneInfo("America/Argentina/Buenos_Aires")
+
+ARMAS_DISPONIBLES = [
+    "Greatsword", "Sword", "Crossbow", "Longbow",
+    "Staff", "Wand", "Dagger", "Spear"
+]
+
+ROLES_DISPONIBLES = [
+    "Ranged DPS", "Mid Range DPS", "Melee DPS",
+    "Tank", "Healer"
+]
 
 logging.basicConfig(
     filename='bot_commands.log',
@@ -522,6 +532,157 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
                 logger.info(f"Notificación consolidada enviada a {len(members_no_asistieron)} usuarios en '{nombre_evento}'.")
             except Exception as e:
                 logger.error(f"Error al enviar notificación consolidada: {e}")
+
+
+class EquipoView(View):
+    def __init__(self, nombre_usuario: str):
+        super().__init__(timeout=300)
+        self.nombre_usuario = nombre_usuario
+        self.main_weapon = None
+        self.secondary_weapon = None
+        self.role = None
+
+        self.select_main_weapon = Select(
+            placeholder="Selecciona tu Arma Principal",
+            min_values=1,
+            max_values=1,
+            options=[SelectOption(label=arma, value=arma) for arma in ARMAS_DISPONIBLES],
+            custom_id="select_main_weapon"
+        )
+        self.select_main_weapon.callback = self.main_weapon_selected
+        self.add_item(self.select_main_weapon)
+
+        self.select_secondary_weapon = Select(
+            placeholder="Selecciona tu Arma Secundaria",
+            min_values=1,
+            max_values=1,
+            options=[SelectOption(label=arma, value=arma) for arma in ARMAS_DISPONIBLES],
+            custom_id="select_secondary_weapon"
+        )
+        self.select_secondary_weapon.callback = self.secondary_weapon_selected
+        self.add_item(self.select_secondary_weapon)
+
+        self.select_role = Select(
+            placeholder="Selecciona tu Rol",
+            min_values=1,
+            max_values=1,
+            options=[SelectOption(label=rol, value=rol) for rol in ROLES_DISPONIBLES],
+            custom_id="select_role"
+        )
+        self.select_role.callback = self.role_selected
+        self.add_item(self.select_role)
+
+        self.submit_button = Button(label="Enviar", style=ButtonStyle.green)
+        self.submit_button.callback = self.submit
+        self.add_item(self.submit_button)
+
+    async def main_weapon_selected(self, interaction: discord.Interaction):
+        self.main_weapon = self.select_main_weapon.values[0]
+        await interaction.response.send_message(
+            f"Arma Principal seleccionada: **{self.main_weapon}**", ephemeral=True
+        )
+        logger.info(f"Usuario '{self.nombre_usuario}' seleccionó Arma Principal: {self.main_weapon}")
+
+    async def secondary_weapon_selected(self, interaction: discord.Interaction):
+        self.secondary_weapon = self.select_secondary_weapon.values[0]
+        await interaction.response.send_message(
+            f"Arma Secundaria seleccionada: **{self.secondary_weapon}**", ephemeral=True
+        )
+        logger.info(f"Usuario '{self.nombre_usuario}' seleccionó Arma Secundaria: {self.secondary_weapon}")
+
+    async def role_selected(self, interaction: discord.Interaction):
+        self.role = self.select_role.values[0]
+        await interaction.response.send_message(
+            f"Rol seleccionado: **{self.role}**", ephemeral=True
+        )
+        logger.info(f"Usuario '{self.nombre_usuario}' seleccionó Rol: {self.role}")
+
+    async def submit(self, interaction: discord.Interaction):
+        if not (self.main_weapon and self.secondary_weapon and self.role):
+            await interaction.response.send_message(
+                "Por favor, selecciona todas las opciones antes de enviar.", ephemeral=True
+            )
+            logger.warning(f"Usuario '{self.nombre_usuario}' intentó enviar sin completar todas las selecciones.")
+            return
+
+        await interaction.response.send_modal(GearScoreModal(self.nombre_usuario, self.main_weapon, self.secondary_weapon, self.role, self))
+
+class GearScoreModal(Modal):
+    def __init__(self, nombre_usuario: str, main_weapon: str, secondary_weapon: str, role: str, view: EquipoView):
+        super().__init__(title="Completa tu Equipo")
+        self.nombre_usuario = nombre_usuario
+        self.main_weapon = main_weapon
+        self.secondary_weapon = secondary_weapon
+        self.role = role
+        self.view = view
+
+        self.gear_score = InputText(
+            label="Gear Score",
+            placeholder="Ingresa tu Gear Score (número)",
+            style=discord.InputTextStyle.short,
+            required=True
+        )
+        self.add_item(self.gear_score)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        gear_score_str = self.gear_score.value.strip()
+        if not gear_score_str.isdigit():
+            await interaction.response.send_message(
+                "El Gear Score debe ser un número válido.", ephemeral=True
+            )
+            logger.warning(f"Usuario '{self.nombre_usuario}' ingresó Gear Score inválido: {gear_score_str}")
+            return
+
+        gear_score = int(gear_score_str)
+        if gear_score < 0:
+            await interaction.response.send_message(
+                "El Gear Score no puede ser negativo.", ephemeral=True
+            )
+            logger.warning(f"Usuario '{self.nombre_usuario}' ingresó Gear Score negativo: {gear_score}")
+            return
+
+        if self.nombre_usuario not in user_data:
+            await interaction.response.send_message(
+                "Ocurrió un error: tu usuario no está vinculado al sistema DKP.", ephemeral=True
+            )
+            logger.error(f"Usuario '{self.nombre_usuario}' no encontrado en 'user_data' al configurar equipo.")
+            return
+
+        user_data[self.nombre_usuario]["equipo"] = {
+            "arma_principal": self.main_weapon,
+            "arma_secundaria": self.secondary_weapon,
+            "rol": self.role,
+            "gear_score": gear_score
+        }
+        guardar_datos()
+
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="Equipo Configurado",
+                description=(
+                    f"**Arma Principal:** {self.main_weapon}\n"
+                    f"**Arma Secundaria:** {self.secondary_weapon}\n"
+                    f"**Rol:** {self.role}\n"
+                    f"**Gear Score:** {gear_score}"
+                ),
+                color=discord.Color.green()
+            ),
+            ephemeral=True
+        )
+        logger.info(f"Equipo configurado para '{self.nombre_usuario}': {self.main_weapon}, {self.secondary_weapon}, {self.role}, Gear Score: {gear_score}")
+
+        self.view.select_main_weapon.disabled = True
+        self.view.select_secondary_weapon.disabled = True
+        self.view.select_role.disabled = True
+        self.view.submit_button.disabled = True
+        await interaction.message.edit(view=self.view)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        await interaction.response.send_message(
+            "Ocurrió un error al procesar tu Gear Score. Por favor, inténtalo de nuevo más tarde.",
+            ephemeral=True
+        )
+        logger.error(f"Error en GearScoreModal para '{self.nombre_usuario}': {error}")
 
 class AusenciaInteractiveView(View):
     def __init__(self, author: discord.User):
@@ -1193,6 +1354,37 @@ async def dkp_detalle(ctx, *, nombre_usuario: str = None):
     await ctx.send(embed=embed)
     logger.info(f"Detalle DKP mostrado para '{nombre_usuario}' por '{ctx.author}'.")
 
+@bot.command(name="equipo")
+@requiere_vinculacion()
+async def equipo(ctx):
+    """
+    Configura el equipo del usuario seleccionando armas, rol y Gear Score.
+    """
+    usuario = ctx.author
+    nombre_usuario = None
+    for nombre, datos in user_data.items():
+        if datos.get("discord_id") == usuario.id:
+            nombre_usuario = nombre
+            break
+
+    if nombre_usuario is None:
+        await ctx.send(embed=discord.Embed(
+            title="No Vinculado",
+            description="No estás vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Usuario '{usuario}' intentó usar !equipo sin estar vinculado.")
+        return
+
+    view = EquipoView(nombre_usuario)
+    embed = discord.Embed(
+        title="Configura tu Equipo",
+        description="Selecciona tus armas y rol, luego envía para ingresar tu Gear Score.",
+        color=discord.Color.blue()
+    )
+    await ctx.send(embed=embed, view=view)
+    logger.info(f"Usuario '{nombre_usuario}' inició la configuración de equipo con !equipo.")
+
 @bot.command(name="registroevento")
 @requiere_vinculacion(comando_admin=True)
 async def registroevento(ctx, nombre_evento: str):
@@ -1429,6 +1621,11 @@ async def ausencia(ctx, *args):
 @bot.command(name="dkp")
 @requiere_vinculacion()
 async def score(ctx, nombre: str = None):
+    """
+    Muestra el DKP de un usuario específico o una tabla completa de DKP con detalles del equipo.
+    - Sin argumentos: Muestra una tabla completa de DKP con detalles del equipo.
+    - Con nombre o mención: Muestra detalles del DKP y equipo del usuario especificado.
+    """
     if nombre:
         member = ctx.message.mentions[0] if ctx.message.mentions else None
         if member:
@@ -1444,7 +1641,6 @@ async def score(ctx, nombre: str = None):
                     description="El usuario mencionado no está vinculado al sistema DKP.",
                     color=discord.Color.red()
                 ))
-                logger.warning(f"Usuario mencionado '{member}' no está vinculado en 'user_data'.")
                 return
         else:
             nombre_usuario = nombre
@@ -1454,33 +1650,68 @@ async def score(ctx, nombre: str = None):
                     description=f"No se encontró el usuario con nombre **{nombre_usuario}**.",
                     color=discord.Color.red()
                 ))
-                logger.warning(f"Usuario '{nombre_usuario}' no encontrado al consultar DKP.")
                 return
+
+        equipo = user_data[nombre_usuario].get("equipo", {})
+        arma_principal = equipo.get("arma_principal", "N/A")
+        arma_secundaria = equipo.get("arma_secundaria", "N/A")
+        rol = equipo.get("rol", "N/A")
+        gear_score = equipo.get("gear_score", "N/A")
 
         puntos = user_data[nombre_usuario]["score"]
         status = user_data[nombre_usuario].get("status", "normal")
         estado = "VACACIONES" if status == "vacaciones" else "ACTIVO"
         color = discord.Color.green() if puntos >= 0 else discord.Color.red()
 
-        embed = discord.Embed(title=f"DKP de {nombre_usuario}", color=color)
-        embed.add_field(name="DKP", value=str(puntos), inline=True)
-        embed.add_field(name="Estado", value=estado, inline=True)
+        desc = (
+            f"**Nombre:** {nombre_usuario}\n"
+            f"**DKP:** {puntos}\n"
+            f"**Estado:** {estado}\n"
+            f"**Arma Principal:** {arma_principal}\n"
+            f"**Arma Secundaria:** {arma_secundaria}\n"
+            f"**Rol:** {rol}\n"
+            f"**Gear Score:** {gear_score}"
+        )
+
+        embed = discord.Embed(
+            title=f"DKP Detalle: {nombre_usuario}",
+            description=desc,
+            color=color
+        )
+
+        if equipo == {}:
+            embed.add_field(
+                name="⚠️ Equipo No Configurado",
+                value="Tu equipo aún no está configurado. Usa `!equipo` para establecer tu Arma Principal, Arma Secundaria, Rol y Gear Score.",
+                inline=False
+            )
+
         await ctx.send(embed=embed)
-        logger.info(f"Usuario '{nombre_usuario}' consultó su DKP.")
+        logger.info(f"Detalle DKP mostrado para '{nombre_usuario}' por '{ctx.author}'.")
     else:
         if not user_data:
             await ctx.send("No hay datos de usuarios aún.")
-            logger.info("Comando !dkp ejecutado pero no hay datos de usuarios.")
             return
 
         all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
-        desc = "```\n{:<15} {:<10} {:<10}\n".format("Nombre", "DKP", "Estado")
-        desc += "-"*40 + "\n"
+        desc = (
+            "```\n"
+            f"{'Nombre':<15} {'DKP':<8} {'Estado':<10} {'Arma Principal':<15} {'Arma Secundaria':<17} {'Rol':<15} {'Gear Score':<10}\n"
+            f"{'-'*90}\n"
+        )
         for nombre_u, datos in all_users:
             puntos = datos["score"]
             status = datos.get("status", "normal")
             estado = "VACACIONES" if status == "vacaciones" else "ACTIVO"
-            desc += "{:<15} {:<10} {:<10}\n".format(nombre_u, str(puntos), estado)
+
+            equipo = datos.get("equipo", {})
+            arma_principal = equipo.get("arma_principal", "N/A")
+            arma_secundaria = equipo.get("arma_secundaria", "N/A")
+            rol = equipo.get("rol", "N/A")
+            gear_score = equipo.get("gear_score", "N/A")
+
+            desc += f"{nombre_u:<15} {puntos:<8} {estado:<10} {arma_principal:<15} {arma_secundaria:<17} {rol:<15} {gear_score:<10}\n"
+
         desc += "```"
 
         embed = discord.Embed(
