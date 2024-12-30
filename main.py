@@ -1695,8 +1695,8 @@ async def score(ctx, nombre: str = None):
         all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
 
         encabezados = (
-            f"{'Nombre':<15} {'DKP':<5} {'Armas':<25} {'GS':<5}\n"
-            f"{'-'*15} {'-'*5} {'-'*25} {'-'*5}\n"
+            f"{'Nombre':<15} {'DKP':<5} {'Armas':<15} {'Rol':<15} {'GS':<5}\n"
+            f"{'-'*15} {'-'*5} {'-'*15} {'-'*15} {'-'*5}\n"
         )
 
         embed_title_base = "Tabla de DKP"
@@ -1710,11 +1710,12 @@ async def score(ctx, nombre: str = None):
             equipo = datos.get("equipo", {})
             arma_principal = equipo.get("arma_principal", "N/A")
             arma_secundaria = equipo.get("arma_secundaria", "N/A")
+            rol = equipo.get("rol", "N/A")
             gear_score = equipo.get("gear_score", "N/A")
 
             armas = f"{arma_principal}/{arma_secundaria}"
 
-            linea = f"{nombre_u:<15} {puntos:<5} {armas:<25} {gear_score:<5}\n"
+            linea = f"{nombre_u:<15} {puntos:<5} {armas:<15} {rol:<15} {gear_score:<5}\n"
 
             if len(embed_description) + len(linea) + len("```") > max_length:
                 embed_description += "```"
