@@ -5,7 +5,7 @@ import logging
 import requests
 from discord.ext import commands, tasks
 from discord.ext.commands import CommandNotFound
-from discord.ui import View, Button, Select, Modal, TextInput
+from discord.ui import View, Button, Select, Modal, TextInput, TextInputStyle
 from discord import ButtonStyle, SelectOption
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -605,7 +605,13 @@ class EquipoView(View):
             logger.warning(f"Usuario '{self.nombre_usuario}' intentó enviar sin completar todas las selecciones.")
             return
 
-        await interaction.response.send_modal(GearScoreModal(self.nombre_usuario, self.main_weapon, self.secondary_weapon, self.role, self))
+        await interaction.response.send_modal(GearScoreModal(
+            self.nombre_usuario,
+            self.main_weapon,
+            self.secondary_weapon,
+            self.role,
+            self
+        ))
 
 class GearScoreModal(Modal):
     def __init__(self, nombre_usuario: str, main_weapon: str, secondary_weapon: str, role: str, view: EquipoView):
@@ -619,7 +625,7 @@ class GearScoreModal(Modal):
         self.gear_score = TextInput(
             label="Gear Score",
             placeholder="Ingresa tu Gear Score (número)",
-            style=discord.InputTextStyle.short,
+            style=TextInputStyle.short,
             required=True
         )
         self.add_item(self.gear_score)
@@ -634,11 +640,11 @@ class GearScoreModal(Modal):
             return
 
         gear_score = int(gear_score_str)
-        if gear_score < 0:
+        if gear_score < 0 or gear_score > 10000:
             await interaction.response.send_message(
-                "El Gear Score no puede ser negativo.", ephemeral=True
+                "El Gear Score debe estar entre 0 y 10,000.", ephemeral=True
             )
-            logger.warning(f"Usuario '{self.nombre_usuario}' ingresó Gear Score negativo: {gear_score}")
+            logger.warning(f"Usuario '{self.nombre_usuario}' ingresó Gear Score fuera de rango: {gear_score}")
             return
 
         if self.nombre_usuario not in user_data:
@@ -660,8 +666,7 @@ class GearScoreModal(Modal):
             embed=discord.Embed(
                 title="Equipo Configurado",
                 description=(
-                    f"**Arma Principal:** {self.main_weapon}\n"
-                    f"**Arma Secundaria:** {self.secondary_weapon}\n"
+                    f"**Armas:** {self.main_weapon}/{self.secondary_weapon}\n"
                     f"**Rol:** {self.role}\n"
                     f"**Gear Score:** {gear_score}"
                 ),
@@ -669,7 +674,7 @@ class GearScoreModal(Modal):
             ),
             ephemeral=True
         )
-        logger.info(f"Equipo configurado para '{self.nombre_usuario}': {self.main_weapon}, {self.secondary_weapon}, {self.role}, Gear Score: {gear_score}")
+        logger.info(f"Equipo configurado para '{self.nombre_usuario}': {self.main_weapon}/{self.secondary_weapon}, Rol: {self.role}, Gear Score: {gear_score}")
 
         self.view.select_main_weapon.disabled = True
         self.view.select_secondary_weapon.disabled = True
