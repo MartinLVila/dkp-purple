@@ -1694,11 +1694,18 @@ async def score(ctx, nombre: str = None):
             return
 
         all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
-        desc = (
-            "```\n"
-            f"{'Nombre':<15} {'DKP':<8} {'Estado':<10} {'Arma Principal':<15} {'Arma Secundaria':<17} {'Rol':<15} {'Gear Score':<10}\n"
-            f"{'-'*90}\n"
+
+        encabezados = (
+            f"{'Nombre':<15} {'DKP':<6} {'Estado':<10} {'Arma P.':<12} "
+            f"{'Arma S.':<12} {'Rol':<15} {'Gear':<6}\n"
+            f"{'-'*15} {'-'*6} {'-'*10} {'-'*12} {'-'*12} {'-'*15} {'-'*6}\n"
         )
+
+        embed_title_base = "Tabla de DKP"
+        embed_description = encabezados
+        max_length = 6000 
+        embeds = []
+
         for nombre_u, datos in all_users:
             puntos = datos["score"]
             status = datos.get("status", "normal")
@@ -1710,17 +1717,29 @@ async def score(ctx, nombre: str = None):
             rol = equipo.get("rol", "N/A")
             gear_score = equipo.get("gear_score", "N/A")
 
-            desc += f"{nombre_u:<15} {puntos:<8} {estado:<10} {arma_principal:<15} {arma_secundaria:<17} {rol:<15} {gear_score:<10}\n"
+            linea = f"{nombre_u:<15} {puntos:<6} {estado:<10} {arma_principal:<12} {arma_secundaria:<12} {rol:<15} {gear_score:<6}\n"
 
-        desc += "```"
+            if len(embed_description) + len(linea) > max_length - 200:
+                embeds.append(discord.Embed(
+                    title=embed_title_base,
+                    description=embed_description,
+                    color=discord.Color.blue()
+                ))
+                embed_description = encabezados
 
-        embed = discord.Embed(
-            title="Tabla de DKP",
-            description=desc,
-            color=discord.Color.blue()
-        )
-        await ctx.send(embed=embed)
-        logger.info(f"Se mostró la tabla completa de DKP a {ctx.author}.")
+            embed_description += linea
+
+        if embed_description != encabezados:
+            embeds.append(discord.Embed(
+                title=embed_title_base,
+                description=embed_description,
+                color=discord.Color.blue()
+            ))
+
+        for embed in embeds:
+            await ctx.send(embed=embed)
+
+        logger.info(f"Se mostró la tabla completa de DKP a {ctx.author}. Total embeds enviados: {len(embeds)}")
 
 
 ############################
