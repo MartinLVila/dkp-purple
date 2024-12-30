@@ -621,20 +621,7 @@ class AusenciaInteractiveView(View):
             color=discord.Color.blue()
         )
 
-        self.clear_items()
-
-        btn_confirmar = Button(label="Confirmar", style=ButtonStyle.success)
-        btn_confirmar.callback = self.confirmar_evento
-        self.add_item(btn_confirmar)
-
-        btn_cancelar = Button(label="Cancelar", style=ButtonStyle.danger)
-        btn_cancelar.callback = self.cancelar
-        self.add_item(btn_cancelar)
-
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    async def confirmar_evento(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.edit_message(embed=embed, view=None)
 
         usuario = interaction.user
         nombre_usuario = None
@@ -709,20 +696,7 @@ class AusenciaInteractiveView(View):
             color=discord.Color.blue()
         )
 
-        self.clear_items()
-
-        btn_confirmar = Button(label="Confirmar", style=ButtonStyle.success)
-        btn_confirmar.callback = self.confirmar_duracion
-        self.add_item(btn_confirmar)
-
-        btn_cancelar = Button(label="Cancelar", style=ButtonStyle.danger)
-        btn_cancelar.callback = self.cancelar
-        self.add_item(btn_cancelar)
-
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    async def confirmar_duracion(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.edit_message(embed=embed, view=None)
 
         usuario = interaction.user
         nombre_usuario = None
