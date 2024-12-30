@@ -1658,17 +1658,15 @@ async def score(ctx, nombre: str = None):
         rol = equipo.get("rol", "N/A")
         gear_score = equipo.get("gear_score", "N/A")
 
+        armas = f"{arma_principal}/{arma_secundaria}"
+
         puntos = user_data[nombre_usuario]["score"]
-        status = user_data[nombre_usuario].get("status", "normal")
-        estado = "VACACIONES" if status == "vacaciones" else "ACTIVO"
         color = discord.Color.green() if puntos >= 0 else discord.Color.red()
 
         desc = (
             f"**Nombre:** {nombre_usuario}\n"
             f"**DKP:** {puntos}\n"
-            f"**Estado:** {estado}\n"
-            f"**Arma Principal:** {arma_principal}\n"
-            f"**Arma Secundaria:** {arma_secundaria}\n"
+            f"**Armas:** {armas}\n"
             f"**Rol:** {rol}\n"
             f"**Gear Score:** {gear_score}"
         )
@@ -1696,20 +1694,17 @@ async def score(ctx, nombre: str = None):
         all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
 
         encabezados = (
-            f"{'Nombre':<15} {'DKP':<6} {'Estado':<10} {'Arma P.':<12} "
-            f"{'Arma S.':<12} {'Rol':<15} {'Gear':<6}\n"
-            f"{'-'*15} {'-'*6} {'-'*10} {'-'*12} {'-'*12} {'-'*15} {'-'*6}\n"
+            f"{'Nombre':<15} {'DKP':<5} {'Armas':<20} {'Rol':<15} {'GS':<5}\n"
+            f"{'-'*15} {'-'*5} {'-'*20} {'-'*15} {'-'*5}\n"
         )
 
         embed_title_base = "Tabla de DKP"
         embed_description = f"```{encabezados}"
-        max_length = 4096 - 3
+        max_length = 4096 - len(embed_title_base) - len("```")
         embeds = []
 
         for nombre_u, datos in all_users:
             puntos = datos["score"]
-            status = datos.get("status", "normal")
-            estado = "VACACIONES" if status == "vacaciones" else "ACTIVO"
 
             equipo = datos.get("equipo", {})
             arma_principal = equipo.get("arma_principal", "N/A")
@@ -1717,9 +1712,11 @@ async def score(ctx, nombre: str = None):
             rol = equipo.get("rol", "N/A")
             gear_score = equipo.get("gear_score", "N/A")
 
-            linea = f"{nombre_u:<15} {puntos:<6} {estado:<10} {arma_principal:<12} {arma_secundaria:<12} {rol:<15} {gear_score:<6}\n"
+            armas = f"{arma_principal}/{arma_secundaria}"
 
-            if len(embed_description) + len(linea) + 3 > max_length:
+            linea = f"{nombre_u:<15} {puntos:<5} {armas:<20} {rol:<15} {gear_score:<5}\n"
+
+            if len(embed_description) + len(linea) + len("```") > max_length:
                 embed_description += "```"
                 embeds.append(discord.Embed(
                     title=embed_title_base,
@@ -1742,7 +1739,6 @@ async def score(ctx, nombre: str = None):
             await ctx.send(embed=embed)
 
         logger.info(f"Se mostró la tabla completa de DKP a {ctx.author}. Total embeds enviados: {len(embeds)}")
-
 
 ############################
 # Comandos Administrativos
