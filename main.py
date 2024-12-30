@@ -614,7 +614,7 @@ class EquipoView(View):
         ))
 
 class GearScoreModal(Modal):
-    def __init__(self, nombre_usuario: str, main_weapon: str, secondary_weapon: str, role: str, view: EquipoView):
+    def __init__(self, nombre_usuario: str, main_weapon: str, secondary_weapon: str, role: str, view: View):
         super().__init__(title="Completa tu Equipo")
         self.nombre_usuario = nombre_usuario
         self.main_weapon = main_weapon
@@ -632,11 +632,11 @@ class GearScoreModal(Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         gear_score_str = self.gear_score.value.strip()
+
         if not gear_score_str.isdigit():
             await interaction.response.send_message(
                 "El Gear Score debe ser un número válido.", ephemeral=True
             )
-            logger.warning(f"Usuario '{self.nombre_usuario}' ingresó Gear Score inválido: {gear_score_str}")
             return
 
         gear_score = int(gear_score_str)
@@ -644,14 +644,12 @@ class GearScoreModal(Modal):
             await interaction.response.send_message(
                 "El Gear Score debe estar entre 0 y 10,000.", ephemeral=True
             )
-            logger.warning(f"Usuario '{self.nombre_usuario}' ingresó Gear Score fuera de rango: {gear_score}")
             return
 
         if self.nombre_usuario not in user_data:
             await interaction.response.send_message(
                 "Ocurrió un error: tu usuario no está vinculado al sistema DKP.", ephemeral=True
             )
-            logger.error(f"Usuario '{self.nombre_usuario}' no encontrado en 'user_data' al configurar equipo.")
             return
 
         user_data[self.nombre_usuario]["equipo"] = {
@@ -671,10 +669,21 @@ class GearScoreModal(Modal):
             ),
             color=discord.Color.green()
         )
-
         await interaction.message.edit(content="✅ Equipo configurado con éxito:", embed=embed, view=None)
 
+        await interaction.response.defer()
+
         logger.info(f"Equipo configurado para '{self.nombre_usuario}': {self.main_weapon}/{self.secondary_weapon}, Rol: {self.role}, Gear Score: {gear_score}")
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        try:
+            await interaction.response.send_message(
+                "Ocurrió un error al procesar tu Gear Score. Por favor, inténtalo de nuevo más tarde.",
+                ephemeral=True
+            )
+        except Exception as e:
+            logger.error(f"Error adicional al manejar on_error: {e}")
+        logger.error(f"Error en GearScoreModal para '{self.nombre_usuario}': {error}")
 
 class AusenciaInteractiveView(View):
     def __init__(self, author: discord.User):
