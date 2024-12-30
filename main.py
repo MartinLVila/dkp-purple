@@ -662,32 +662,19 @@ class GearScoreModal(Modal):
         }
         guardar_datos()
 
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Equipo Configurado",
-                description=(
-                    f"**Armas:** {self.main_weapon}/{self.secondary_weapon}\n"
-                    f"**Rol:** {self.role}\n"
-                    f"**Gear Score:** {gear_score}"
-                ),
-                color=discord.Color.green()
+        embed = discord.Embed(
+            title="Equipo Configurado",
+            description=(
+                f"**Armas:** {self.main_weapon}/{self.secondary_weapon}\n"
+                f"**Rol:** {self.role}\n"
+                f"**Gear Score:** {gear_score}"
             ),
-            ephemeral=True
+            color=discord.Color.green()
         )
+
+        await interaction.message.edit(content="✅ Equipo configurado con éxito:", embed=embed, view=None)
+
         logger.info(f"Equipo configurado para '{self.nombre_usuario}': {self.main_weapon}/{self.secondary_weapon}, Rol: {self.role}, Gear Score: {gear_score}")
-
-        self.view.select_main_weapon.disabled = True
-        self.view.select_secondary_weapon.disabled = True
-        self.view.select_role.disabled = True
-        self.view.submit_button.disabled = True
-        await interaction.message.edit(view=self.view)
-
-    async def on_error(self, interaction: discord.Interaction, error: Exception):
-        await interaction.response.send_message(
-            "Ocurrió un error al procesar tu Gear Score. Por favor, inténtalo de nuevo más tarde.",
-            ephemeral=True
-        )
-        logger.error(f"Error en GearScoreModal para '{self.nombre_usuario}': {error}")
 
 class AusenciaInteractiveView(View):
     def __init__(self, author: discord.User):
