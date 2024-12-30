@@ -5,8 +5,8 @@ import logging
 import requests
 from discord.ext import commands, tasks
 from discord.ext.commands import CommandNotFound
-from discord.ui import View, Button, Select, Modal, TextInput, TextInputStyle
-from discord import ButtonStyle, SelectOption
+from discord.ui import View, Button, Select, Modal, TextInput
+from discord import ButtonStyle, SelectOption, TextStyle
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from functools import wraps
@@ -625,7 +625,7 @@ class GearScoreModal(Modal):
         self.gear_score = TextInput(
             label="Gear Score",
             placeholder="Ingresa tu Gear Score (número)",
-            style=TextInputStyle.short,
+            style=TextStyle.short,
             required=True
         )
         self.add_item(self.gear_score)
