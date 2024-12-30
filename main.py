@@ -524,8 +524,9 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
                 logger.error(f"Error al enviar notificación consolidada: {e}")
 
 class AusenciaInteractiveView(View):
-    def __init__(self):
+    def __init__(self, author: discord.User):
         super().__init__(timeout=300)
+        self.author = author
 
         self.select_eventos = Select(
             placeholder="Selecciona los eventos a los que te ausentas...",
@@ -561,6 +562,15 @@ class AusenciaInteractiveView(View):
 
         self.eventos = []
         self.duracion = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message(
+                "Este comando es privado y no puedes interactuar con él.",
+                ephemeral=True
+            )
+            return False
+        return True
 
     async def eventos_seleccionados(self, interaction: discord.Interaction):
         self.eventos = self.select_eventos.values
@@ -1172,7 +1182,7 @@ async def ausencia(ctx, *args):
         - Por evento: !ausencia <nombre_usuario> <nombre_evento>
     """
     if len(args) == 0:
-        view = AusenciaInteractiveView()
+        view = AusenciaInteractiveView(author=ctx.author)
         embed = discord.Embed(
             title="📅 Justificar Ausencia",
             description="¿Para qué eventos o quieres justificar tu ausencia?",
