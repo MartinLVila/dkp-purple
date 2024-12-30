@@ -1739,6 +1739,88 @@ async def score(ctx, nombre: str = None):
             await ctx.send(embed=embed)
 
         logger.info(f"Se mostró la tabla completa de DKP a {ctx.author}. Total embeds enviados: {len(embeds)}")
+        
+############################
+# Comando de Consulta de TOP
+############################
+@bot.command(name="topdkp")
+@requiere_vinculacion()
+async def topdkp(ctx):
+    """
+    Comando para mostrar el top 10 de DKP basado en armas seleccionadas.
+    """
+    class TopArmasView(View):
+        def __init__(self, ctx):
+            super().__init__(timeout=300)
+            self.ctx = ctx
+            for arma in ARMAS_DISPONIBLES:
+                boton = Button(label=arma, style=ButtonStyle.primary, custom_id=f"arma_{arma}")
+                boton.callback = self.mostrar_top_arma
+                self.add_item(boton)
+
+        async def mostrar_top_arma(self, interaction: discord.Interaction):
+            try:
+                arma_seleccionada = interaction.data['custom_id'].replace("arma_", "")
+                if not arma_seleccionada:
+                    await interaction.response.send_message(
+                        "No se pudo determinar el arma seleccionada.",
+                        ephemeral=True
+                    )
+                    return
+
+                usuarios_filtrados = [
+                    (
+                        nombre,
+                        datos["score"],
+                        f"{datos.get('equipo', {}).get('arma_principal', 'N/A')}/{datos.get('equipo', {}).get('arma_secundaria', 'N/A')}",
+                        datos.get("equipo", {}).get("rol", "N/A"),
+                    )
+                    for nombre, datos in user_data.items()
+                    if datos.get("equipo") and (
+                        datos["equipo"].get("arma_principal") == arma_seleccionada or
+                        datos["equipo"].get("arma_secundaria") == arma_seleccionada
+                    )
+                ]
+
+                if not usuarios_filtrados:
+                    await interaction.response.send_message(
+                        f"No se encontraron usuarios con el arma **{arma_seleccionada}**.",
+                        ephemeral=True
+                    )
+                    return
+
+                usuarios_filtrados = sorted(usuarios_filtrados, key=lambda x: x[1], reverse=True)[:10]
+
+                desc = f"**Top 10 DKP para {arma_seleccionada}:**\n```\n"
+                desc += "{:<15} {:<5} {:<20} {:<10}\n".format("Nombre", "DKP", "Armas", "Rol")
+                desc += "-" * 55 + "\n"
+                for nombre, dkp, armas, rol in usuarios_filtrados:
+                    desc += f"{nombre:<15} {dkp:<5} {armas:<20} {rol:<10}\n"
+                desc += "```"
+
+                embed = discord.Embed(
+                    description=desc,
+                    color=discord.Color.green()
+                )
+
+                self.clear_items()
+                await interaction.message.edit(embed=embed, view=None)
+                logger.info(f"Top 10 actualizado para '{arma_seleccionada}' por '{interaction.user}'.")
+            except Exception as e:
+                logger.error(f"Error en mostrar_top_arma: {e}")
+                await interaction.response.send_message(
+                    "Ocurrió un error al procesar la solicitud. Por favor, inténtalo de nuevo.",
+                    ephemeral=True
+                )
+
+    view = TopArmasView(ctx)
+    embed = discord.Embed(
+        title="Top DKP por Arma",
+        description="Selecciona un arma para mostrar el top 10 de usuarios con esa arma.",
+        color=discord.Color.blue()
+    )
+    await ctx.send(embed=embed, view=view)
+    logger.info(f"Comando !top ejecutado por '{ctx.author}'.")
 
 ############################
 # Comandos Administrativos
@@ -2062,6 +2144,8 @@ async def info(ctx):
     user_commands = [
         ("!dkp", "Consulta tu DKP o el de otro usuario."),
         ("!dkpdetalle", "Muestra los cambios de DKP en los últimos 7 días."),
+        ("!topdkp", "Consulta el top 10 DKP por arma."),
+		("!equipo", "Configura tu equipo."),
         ("!ausencia", "Justifica una ausencia por días o evento."),
         ("!llegue", "Justifica tu llegada tardía a un evento.")
     ]
