@@ -1679,7 +1679,7 @@ async def score(ctx, nombre: str = None):
             color=color
         )
 
-        if equipo == {}:
+        if not equipo:
             embed.add_field(
                 name="⚠️ Equipo No Configurado",
                 value="Tu equipo aún no está configurado. Usa `!equipo` para establecer tu Arma Principal, Arma Secundaria, Rol y Gear Score.",
@@ -1702,8 +1702,8 @@ async def score(ctx, nombre: str = None):
         )
 
         embed_title_base = "Tabla de DKP"
-        embed_description = encabezados
-        max_length = 6000 
+        embed_description = f"```{encabezados}"
+        max_length = 4096 - 3
         embeds = []
 
         for nombre_u, datos in all_users:
@@ -1719,17 +1719,19 @@ async def score(ctx, nombre: str = None):
 
             linea = f"{nombre_u:<15} {puntos:<6} {estado:<10} {arma_principal:<12} {arma_secundaria:<12} {rol:<15} {gear_score:<6}\n"
 
-            if len(embed_description) + len(linea) > max_length - 200:
+            if len(embed_description) + len(linea) + 3 > max_length:
+                embed_description += "```"
                 embeds.append(discord.Embed(
                     title=embed_title_base,
                     description=embed_description,
                     color=discord.Color.blue()
                 ))
-                embed_description = encabezados
+                embed_description = f"```{encabezados}"
 
             embed_description += linea
 
-        if embed_description != encabezados:
+        if embed_description != f"```{encabezados}":
+            embed_description += "```"
             embeds.append(discord.Embed(
                 title=embed_title_base,
                 description=embed_description,
