@@ -523,6 +523,187 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
             except Exception as e:
                 logger.error(f"Error al enviar notificación consolidada: {e}")
 
+class AusenciaInteractiveView(View):
+    def __init__(self):
+        super().__init__(timeout=300)
+
+        self.select_eventos = Select(
+            placeholder="Selecciona los eventos a los que te ausentas...",
+            min_values=1,
+            max_values=len(registered_events),
+            options=[
+                SelectOption(label=evento, description=f"Justificar ausencia en {evento}") for evento in sorted(registered_events)
+            ]
+        )
+        self.select_eventos.callback = self.eventos_seleccionados
+        self.add_item(self.select_eventos)
+
+        self.select_duracion = Select(
+            placeholder="Selecciona la duración de tu ausencia...",
+            min_values=1,
+            max_values=1,
+            options=[
+                SelectOption(label="1 Día", description="Ausentarse por 1 día"),
+                SelectOption(label="2 Días", description="Ausentarse por 2 días"),
+                SelectOption(label="Vacaciones", description="Solicitar vacaciones")
+            ]
+        )
+        self.select_duracion.callback = self.duracion_seleccionada
+        self.add_item(self.select_duracion)
+
+        self.btn_cancelar = Button(label="Cancelar", style=ButtonStyle.danger)
+        self.btn_cancelar.callback = self.cancelar
+        self.add_item(self.btn_cancelar)
+
+        self.btn_siguiente = Button(label="Siguiente", style=ButtonStyle.primary)
+        self.btn_siguiente.callback = self.siguiente
+        self.add_item(self.btn_siguiente)
+
+        self.eventos = []
+        self.duracion = None
+
+    async def eventos_seleccionados(self, interaction: discord.Interaction):
+        self.eventos = self.select_eventos.values
+        await interaction.response.defer()
+
+    async def duracion_seleccionada(self, interaction: discord.Interaction):
+        self.duracion = self.select_duracion.values[0]
+        await interaction.response.defer()
+
+    async def siguiente(self, interaction: discord.Interaction):
+        if not self.eventos or not self.duracion:
+            await interaction.response.send_message(
+                "Por favor, selecciona al menos un evento y una duración.",
+                ephemeral=True
+            )
+            return
+
+        self.select_eventos.disabled = True
+        self.select_duracion.disabled = True
+        self.btn_siguiente.disabled = True
+
+        resumen = "**Resumen de tu ausencia:**\n"
+        resumen += f"**Eventos:** {', '.join(self.eventos)}\n"
+        resumen += f"**Duración:** {self.duracion}\n"
+
+        embed = discord.Embed(
+            title="Confirmar Ausencia",
+            description=resumen,
+            color=discord.Color.blue()
+        )
+
+        self.clear_items()
+
+        btn_confirmar = Button(label="Confirmar", style=ButtonStyle.success)
+        btn_confirmar.callback = self.confirmar
+        self.add_item(btn_confirmar)
+
+        btn_cancelar = Button(label="Cancelar", style=ButtonStyle.danger)
+        btn_cancelar.callback = self.cancelar
+        self.add_item(btn_cancelar)
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def confirmar(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        usuario = interaction.user
+        nombre_usuario = None
+        for nombre, datos in user_data.items():
+            if datos.get("discord_id") == usuario.id:
+                nombre_usuario = nombre
+                break
+
+        if nombre_usuario is None and usuario.id not in ADMINS_IDS:
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="No Vinculado",
+                    description="No estás vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
+            logger.warning(f"Usuario '{usuario}' no está vinculado y trató de justificar ausencia interactiva.")
+            self.stop()
+            return
+
+        if self.duracion.lower() == "vacaciones":
+            admins_mencionados = ' '.join([f"<@{admin_id}>" for admin_id in ADMINS_IDS])
+            mensaje = f"{admins_mencionados} El usuario **{nombre_usuario or usuario.name}** solicitó irse de vacaciones."
+
+            canal_admin = bot.get_channel(CANAL_ADMIN)
+            if not canal_admin:
+                await interaction.followup.send(
+                    embed=discord.Embed(
+                        title="Error",
+                        description="No se pudo encontrar el canal de administración para notificar.",
+                        color=discord.Color.red()
+                    ),
+                    ephemeral=True
+                )
+                logger.error(f"Canal de administración con ID {CANAL_ADMIN} no encontrado.")
+                self.stop()
+                return
+
+            await canal_admin.send(mensaje)
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="Solicitud Enviada",
+                    description="Tu solicitud de vacaciones ha sido enviada a los administradores.",
+                    color=discord.Color.green()
+                ),
+                ephemeral=True
+            )
+            logger.info(f"Usuario '{nombre_usuario or usuario.name}' solicitó vacaciones.")
+            self.stop()
+            return
+
+        try:
+            dias = int(self.duracion.split()[0])
+            if dias < 1 or dias > 2:
+                raise ValueError
+        except (ValueError, IndexError):
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="Duración Inválida",
+                    description="La duración seleccionada no es válida. Por favor, intenta nuevamente.",
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
+            logger.warning(f"Usuario '{nombre_usuario or usuario.name}' seleccionó una duración inválida: {self.duracion}")
+            self.stop()
+            return
+
+        ausencia_until = datetime.utcnow() + timedelta(days=dias)
+        user_data[nombre_usuario]["absence_until"] = ausencia_until
+        guardar_datos()
+
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="Ausencia Justificada",
+                description=f"Has quedado justificado por los próximos **{dias} día(s)**, **{nombre_usuario}**.",
+                color=discord.Color.green()
+            ),
+            ephemeral=True
+        )
+        logger.info(f"Usuario '{nombre_usuario}' justificó ausencia por {dias} días.")
+        self.stop()
+
+    async def cancelar(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await interaction.message.delete()
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="Proceso Cancelado",
+                description="Has cancelado la justificación de ausencia.",
+                color=discord.Color.orange()
+            ),
+            ephemeral=True
+        )
+        logger.info(f"Usuario '{interaction.user}' canceló el proceso de justificación de ausencia.")
+        self.stop()
+
 class AsistenciaView(View):
     def __init__(self, nombres_extraidos: List[str], nombres_coincidentes: List[str]):
         super().__init__(timeout=1700)
@@ -990,6 +1171,17 @@ async def ausencia(ctx, *args):
         - Por días: !ausencia <nombre_usuario> <dias>
         - Por evento: !ausencia <nombre_usuario> <nombre_evento>
     """
+    if len(args) == 0:
+        view = AusenciaInteractiveView()
+        embed = discord.Embed(
+            title="📅 Justificar Ausencia",
+            description="¿Para qué eventos o quieres justificar tu ausencia?",
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed, view=view)
+        logger.info(f"Usuario '{ctx.author}' inició el proceso interactivo de !ausencia.")
+        return
+
     if es_admin(ctx):
         if len(args) != 2:
             await ctx.send(embed=discord.Embed(
@@ -1017,8 +1209,8 @@ async def ausencia(ctx, *args):
             if dias < 1 or dias > 3:
                 raise ValueError
 
-            absence_until = datetime.utcnow() + timedelta(days=dias)
-            user_data[nombre_usuario]["absence_until"] = absence_until
+            ausencia_until = datetime.utcnow() + timedelta(days=dias)
+            user_data[nombre_usuario]["absence_until"] = ausencia_until
             guardar_datos()
 
             await ctx.send(embed=discord.Embed(
@@ -1087,8 +1279,8 @@ async def ausencia(ctx, *args):
                 logger.warning(f"Usuario {ctx.author} no está vinculado y quiso justificar ausencia.")
                 return
 
-            absence_until = datetime.utcnow() + timedelta(days=dias)
-            user_data[nombre_usuario]["absence_until"] = absence_until
+            ausencia_until = datetime.utcnow() + timedelta(days=dias)
+            user_data[nombre_usuario]["absence_until"] = ausencia_until
             guardar_datos()
 
             await ctx.send(embed=discord.Embed(
@@ -1139,7 +1331,6 @@ async def ausencia(ctx, *args):
             ))
             logger.info(f"Usuario '{nombre_usuario}' justificó ausencia para el evento '{nombre_evento}'.")
             return
-
 
 ############################
 # Comando de Consulta de DKP
