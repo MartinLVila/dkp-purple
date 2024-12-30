@@ -528,38 +528,23 @@ class AusenciaInteractiveView(View):
         super().__init__(timeout=300)
         self.author = author
 
-        self.select_eventos = Select(
-            placeholder="Selecciona los eventos a los que te ausentas...",
-            min_values=1,
-            max_values=len(registered_events),
-            options=[
-                SelectOption(label=evento, description=f"Justificar ausencia en {evento}") for evento in sorted(registered_events)
-            ]
-        )
-        self.select_eventos.callback = self.eventos_seleccionados
-        self.add_item(self.select_eventos)
-
-        self.select_duracion = Select(
-            placeholder="Selecciona la duración de tu ausencia...",
+        self.select_tipo = Select(
+            placeholder="¿Cómo deseas justificar tu ausencia?",
             min_values=1,
             max_values=1,
             options=[
-                SelectOption(label="1 Día", description="Ausentarse por 1 día"),
-                SelectOption(label="2 Días", description="Ausentarse por 2 días"),
-                SelectOption(label="Vacaciones", description="Solicitar vacaciones")
+                SelectOption(label="Por Evento", description="Justificar ausencia en uno o varios eventos."),
+                SelectOption(label="Por Duración", description="Justificar ausencia por días o vacaciones.")
             ]
         )
-        self.select_duracion.callback = self.duracion_seleccionada
-        self.add_item(self.select_duracion)
+        self.select_tipo.callback = self.tipo_seleccionado
+        self.add_item(self.select_tipo)
 
         self.btn_cancelar = Button(label="Cancelar", style=ButtonStyle.danger)
         self.btn_cancelar.callback = self.cancelar
         self.add_item(self.btn_cancelar)
 
-        self.btn_siguiente = Button(label="Siguiente", style=ButtonStyle.primary)
-        self.btn_siguiente.callback = self.siguiente
-        self.add_item(self.btn_siguiente)
-
+        self.tipo_justificacion = None
         self.eventos = []
         self.duracion = None
 
@@ -572,32 +557,66 @@ class AusenciaInteractiveView(View):
             return False
         return True
 
+    async def tipo_seleccionado(self, interaction: discord.Interaction):
+        self.tipo_justificacion = self.select_tipo.values[0]
+        self.remove_item(self.select_tipo)
+
+        if self.tipo_justificacion == "Por Evento":
+            self.select_eventos = Select(
+                placeholder="Selecciona los eventos a los que te ausentas...",
+                min_values=1,
+                max_values=len(registered_events),
+                options=[
+                    SelectOption(label=evento, description=f"Justificar ausencia en {evento}") for evento in sorted(registered_events)
+                ]
+            )
+            self.select_eventos.callback = self.eventos_seleccionados
+            self.add_item(self.select_eventos)
+
+            self.btn_siguiente = Button(label="Siguiente", style=ButtonStyle.primary)
+            self.btn_siguiente.callback = self.siguiente_evento
+            self.add_item(self.btn_siguiente)
+
+        elif self.tipo_justificacion == "Por Duración":
+            self.select_duracion = Select(
+                placeholder="Selecciona la duración de tu ausencia...",
+                min_values=1,
+                max_values=1,
+                options=[
+                    SelectOption(label="1 Día", description="Ausentarse por 1 día"),
+                    SelectOption(label="2 Días", description="Ausentarse por 2 días"),
+                    SelectOption(label="Vacaciones", description="Solicitar vacaciones")
+                ]
+            )
+            self.select_duracion.callback = self.duracion_seleccionada
+            self.add_item(self.select_duracion)
+
+            self.btn_siguiente = Button(label="Siguiente", style=ButtonStyle.primary)
+            self.btn_siguiente.callback = self.siguiente_duracion
+            self.add_item(self.btn_siguiente)
+
+        await interaction.response.edit_message(view=self)
+
     async def eventos_seleccionados(self, interaction: discord.Interaction):
         self.eventos = self.select_eventos.values
         await interaction.response.defer()
 
-    async def duracion_seleccionada(self, interaction: discord.Interaction):
-        self.duracion = self.select_duracion.values[0]
-        await interaction.response.defer()
-
-    async def siguiente(self, interaction: discord.Interaction):
-        if not self.eventos or not self.duracion:
+    async def siguiente_evento(self, interaction: discord.Interaction):
+        if not self.eventos:
             await interaction.response.send_message(
-                "Por favor, selecciona al menos un evento y una duración.",
+                "Por favor, selecciona al menos un evento.",
                 ephemeral=True
             )
             return
 
         self.select_eventos.disabled = True
-        self.select_duracion.disabled = True
         self.btn_siguiente.disabled = True
 
         resumen = "**Resumen de tu ausencia:**\n"
         resumen += f"**Eventos:** {', '.join(self.eventos)}\n"
-        resumen += f"**Duración:** {self.duracion}\n"
 
         embed = discord.Embed(
-            title="Confirmar Ausencia",
+            title="Confirmar Ausencia por Evento",
             description=resumen,
             color=discord.Color.blue()
         )
@@ -605,7 +624,7 @@ class AusenciaInteractiveView(View):
         self.clear_items()
 
         btn_confirmar = Button(label="Confirmar", style=ButtonStyle.success)
-        btn_confirmar.callback = self.confirmar
+        btn_confirmar.callback = self.confirmar_evento
         self.add_item(btn_confirmar)
 
         btn_cancelar = Button(label="Cancelar", style=ButtonStyle.danger)
@@ -614,7 +633,95 @@ class AusenciaInteractiveView(View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
-    async def confirmar(self, interaction: discord.Interaction):
+    async def confirmar_evento(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        usuario = interaction.user
+        nombre_usuario = None
+        for nombre, datos in user_data.items():
+            if datos.get("discord_id") == usuario.id:
+                nombre_usuario = nombre
+                break
+
+        if nombre_usuario is None and usuario.id not in ADMINS_IDS:
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="No Vinculado",
+                    description="No estás vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
+            logger.warning(f"Usuario '{usuario}' no está vinculado y trató de justificar ausencia interactiva.")
+            self.stop()
+            return
+
+        for nombre_evento in self.eventos:
+            if nombre_evento not in registered_events:
+                await interaction.followup.send(
+                    embed=discord.Embed(
+                        title="Evento No Registrado",
+                        description=f"El evento **{nombre_evento}** no está registrado.",
+                        color=discord.Color.red()
+                    ),
+                    ephemeral=True
+                )
+                logger.warning(f"Evento '{nombre_evento}' no está registrado.")
+                continue
+
+            user_data[nombre_usuario]["justified_events"].add(nombre_evento)
+            logger.info(f"Usuario '{nombre_usuario}' justificó ausencia para el evento '{nombre_evento}'.")
+
+        guardar_datos()
+
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="Ausencia Justificada",
+                description=f"Has justificado tu ausencia para los eventos: {', '.join(self.eventos)}, **{nombre_usuario}**.",
+                color=discord.Color.green()
+            ),
+            ephemeral=True
+        )
+        logger.info(f"Usuario '{nombre_usuario}' justificó ausencia por eventos: {self.eventos}.")
+        self.stop()
+
+    async def duracion_seleccionada(self, interaction: discord.Interaction):
+        self.duracion = self.select_duracion.values[0]
+        await interaction.response.defer()
+
+    async def siguiente_duracion(self, interaction: discord.Interaction):
+        if not self.duracion:
+            await interaction.response.send_message(
+                "Por favor, selecciona una duración.",
+                ephemeral=True
+            )
+            return
+
+        self.select_duracion.disabled = True
+        self.btn_siguiente.disabled = True
+
+        resumen = "**Resumen de tu ausencia:**\n"
+        resumen += f"**Duración:** {self.duracion}\n"
+
+        embed = discord.Embed(
+            title="Confirmar Ausencia por Duración",
+            description=resumen,
+            color=discord.Color.blue()
+        )
+
+        self.clear_items()
+
+        btn_confirmar = Button(label="Confirmar", style=ButtonStyle.success)
+        btn_confirmar.callback = self.confirmar_duracion
+        self.add_item(btn_confirmar)
+
+        btn_cancelar = Button(label="Cancelar", style=ButtonStyle.danger)
+        btn_cancelar.callback = self.cancelar
+        self.add_item(btn_cancelar)
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def confirmar_duracion(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
         usuario = interaction.user
