@@ -277,7 +277,6 @@ def registrar_cambio_dkp(nombre_usuario, delta, razon=""):
 
     logger.debug(f"Registrado cambio de {delta} DKP a '{nombre_usuario}' por '{razon}'.")
 
-
 @bot.event
 async def on_ready():
     cargar_datos()
@@ -1822,6 +1821,7 @@ async def topdkp(ctx):
     await ctx.send(embed=embed, view=view)
     logger.info(f"Comando !top ejecutado por '{ctx.author}'.")
 
+
 ############################
 # Comandos Administrativos
 ############################
@@ -2200,6 +2200,8 @@ async def llegue(ctx, nombre_evento: str):
         logger.warning(f"Usuario '{ctx.author}' intentó usar !llegue en el canal equivocado.")
         return
 
+    nombre_evento = nombre_evento.upper()
+
     if nombre_evento not in events_info:
         await ctx.send(embed=discord.Embed(
             title="Evento No Encontrado",
@@ -2235,6 +2237,15 @@ async def llegue(ctx, nombre_evento: str):
             color=discord.Color.red()
         ))
         logger.warning(f"Usuario '{ctx.author}' quiso justificar tardanza sin estar vinculado.")
+        return
+
+    if nombre_usuario in event["linked_users"]:
+        await ctx.send(embed=discord.Embed(
+            title="Estuviste en el evento",
+            description="Ya te han sumado DKP para este evento.",
+            color=discord.Color.red()
+        ))
+        logger.info(f"Usuario '{nombre_usuario}' intentó sumar extra DKP para el evento '{nombre_evento}'.")
         return
 
     if nombre_usuario in event["late_users"]:
@@ -2304,7 +2315,7 @@ async def limpiar_eventos_expirados():
     ahora = datetime.utcnow()
     eventos_a_eliminar = [
         evento for evento, info in events_info.items()
-        if ahora > info["timestamp"] + timedelta(minutes=20)
+        if ahora > info["timestamp"] + timedelta(minutes=60)
     ]
     for evento in eventos_a_eliminar:
         del events_info[evento]
@@ -2335,7 +2346,7 @@ async def limpiar_eventos_justificados_expirados():
     modificados = False
     for nombre_evento, info in list(events_info.items()):
         evento_time = info["timestamp"]
-        if ahora > evento_time + timedelta(minutes=20):
+        if ahora > evento_time + timedelta(minutes=60):
             for nombre in list(info["penalties"].keys()):
                 if nombre in user_data:
                     pass
