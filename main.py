@@ -1520,7 +1520,7 @@ async def ausencia(ctx, *args):
                 logger.warning(f"El evento '{nombre_evento}' no está registrado. No se puede justificar ausencia.")
                 return
 
-            user_data[nombre_usuario]["justified_events"].add(nombre_evento)
+            user_data[nombre_usuario]["justified_events"].add(nombre_evento.upper())
             guardar_datos()
             await ctx.send(embed=discord.Embed(
                 title="Ausencia Justificada",
@@ -1605,7 +1605,7 @@ async def ausencia(ctx, *args):
                 logger.warning(f"Usuario {ctx.author} no está vinculado y quiso justificar ausencia por evento.")
                 return
 
-            user_data[nombre_usuario]["justified_events"].add(nombre_evento)
+            user_data[nombre_usuario]["justified_events"].add(nombre_evento.upper())
             guardar_datos()
             await ctx.send(embed=discord.Embed(
                 title="Ausencia Justificada",
@@ -1933,6 +1933,7 @@ async def evento(ctx, nombre_evento: str, puntaje: int, *usuarios_mencionados):
     Uso: !evento <nombre_evento> <puntaje> [usuarios] [NORESTA]
     """
     noresta = False
+    nombre_evento = nombre_evento.upper()
     usuarios_mencionados_lower = [u.lower() for u in usuarios_mencionados]
     if 'noresta' in usuarios_mencionados_lower:
         noresta = True
@@ -1994,17 +1995,26 @@ async def borrarusuario(ctx, nombre: str):
     ))
     logger.info(f"Usuario '{nombre}' eliminado por '{ctx.author}'. DKP: {puntos}.")
 
-
+############################
+# Comando para Gestionar DKP
+############################
 @bot.command(name="sumardkp")
 @requiere_vinculacion(comando_admin=True)
-async def sumardkp(ctx, nombre: str, puntos_a_sumar: int):
-    if nombre not in user_data:
+async def sumardkp(ctx, *args):
+    if len(args) != 2:
+        await ctx.send("Uso incorrecto del comando. Usa `!sumardkp [usuario] puntos_a_sumar`.")
+        return
+
+    nombre_usuario_arg, puntos_a_sumar_str = args
+
+    try:
+        puntos_a_sumar = int(puntos_a_sumar_str)
+    except ValueError:
         await ctx.send(embed=discord.Embed(
-            title="Usuario no encontrado",
-            description=f"No se encontró el usuario con nombre **{nombre}**.",
+            title="DKP Inválido",
+            description="La cantidad de DKP a sumar debe ser un número entero positivo.",
             color=discord.Color.red()
         ))
-        logger.warning(f"Intento de sumar DKP a usuario no existente '{nombre}' por '{ctx.author}'.")
         return
 
     if puntos_a_sumar <= 0:
@@ -2013,46 +2023,73 @@ async def sumardkp(ctx, nombre: str, puntos_a_sumar: int):
             description="La cantidad de DKP a sumar debe ser un número positivo.",
             color=discord.Color.red()
         ))
-        logger.warning(f"Administrador '{ctx.author}' intentó sumar DKP no válido: {puntos_a_sumar} a '{nombre}'.")
+        logger.warning(f"Administrador '{ctx.author}' intentó sumar DKP no válido: {puntos_a_sumar} a '{nombre_usuario_arg}'.")
         return
 
-    user_data[nombre]["score"] += puntos_a_sumar
-    registrar_cambio_dkp(nombre, +puntos_a_sumar, f"Comando sumardkp usado por {ctx.author}")
+    if len(ctx.message.mentions) > 0:
+        member = ctx.message.mentions[0]
+        found_name = None
+        for nombre, datos in user_data.items():
+            if datos.get("discord_id") == member.id:
+                found_name = nombre
+                break
+        if found_name is None:
+            await ctx.send(embed=discord.Embed(
+                title="No Vinculado",
+                description="El usuario mencionado no está vinculado al sistema DKP.",
+                color=discord.Color.red()
+            ))
+            return
+        nombre_usuario = found_name
+    else:
+        nombre_usuario_lower = nombre_usuario_arg.lower()
+        found_name = None
+        for nombre, datos in user_data.items():
+            if nombre.lower() == nombre_usuario_lower:
+                found_name = nombre
+                break
+        if found_name is None:
+            await ctx.send(embed=discord.Embed(
+                title="Usuario no encontrado",
+                description=f"No se encontró el usuario con nombre **{nombre_usuario_arg}**.",
+                color=discord.Color.red()
+            ))
+            return
+        nombre_usuario = found_name
+
+    user_data[nombre_usuario]["score"] += puntos_a_sumar
+    registrar_cambio_dkp(nombre_usuario, +puntos_a_sumar, f"Comando sumardkp usado por {ctx.author}")
     guardar_datos()
 
     await ctx.send(embed=discord.Embed(
         title="DKP Actualizado",
-        description=f"Se han agregado {puntos_a_sumar} DKP a **{nombre}**. Total: {user_data[nombre]['score']}",
+        description=f"Se han agregado {puntos_a_sumar} DKP a **{nombre_usuario}**. Total: {user_data[nombre_usuario]['score']}",
         color=discord.Color.green()
     ))
-    logger.info(f"Administrador '{ctx.author}' sumó {puntos_a_sumar} DKP a '{nombre}'. Total: {user_data[nombre]['score']}.")
+    logger.info(f"Administrador '{ctx.author}' sumó {puntos_a_sumar} DKP a '{nombre_usuario}'. Total: {user_data[nombre_usuario]['score']}.")
 
 
 @bot.command(name="restardkp")
 @requiere_vinculacion(comando_admin=True)
-async def restardkp(ctx, member: discord.Member, puntos_a_restar: int):
-    if not es_admin(ctx):
+async def restardkp(ctx, *args):
+    if len(args) != 2:
         await ctx.send(embed=discord.Embed(
-            title="Permiso Denegado",
-            description="No tienes permisos para usar este comando.",
+            title="Uso Incorrecto",
+            description="Uso correcto: `!restardkp [usuario] puntos_a_restar`.",
             color=discord.Color.red()
         ))
-        logger.warning(f"Usuario {ctx.author} intentó usar !restardkp sin permisos.")
         return
 
-    nombre_usuario = None
-    for nombre, datos in user_data.items():
-        if datos.get("discord_id") == member.id:
-            nombre_usuario = nombre
-            break
+    nombre_usuario_arg, puntos_a_restar_str = args
 
-    if nombre_usuario is None:
+    try:
+        puntos_a_restar = int(puntos_a_restar_str)
+    except ValueError:
         await ctx.send(embed=discord.Embed(
-            title="Usuario no Vinculado",
-            description="El usuario mencionado no está vinculado al sistema DKP.",
+            title="DKP Inválido",
+            description="La cantidad de DKP a restar debe ser un número entero positivo.",
             color=discord.Color.red()
         ))
-        logger.warning(f"Usuario '{member}' no está vinculado en 'user_data'.")
         return
 
     if puntos_a_restar <= 0:
@@ -2061,7 +2098,47 @@ async def restardkp(ctx, member: discord.Member, puntos_a_restar: int):
             description="La cantidad de DKP a restar debe ser un número positivo.",
             color=discord.Color.red()
         ))
-        logger.warning(f"Administrador '{ctx.author}' intentó restar DKP no válido: {puntos_a_restar} a '{nombre_usuario}'.")
+        logger.warning(f"Administrador '{ctx.author}' intentó restar DKP no válido: {puntos_a_restar} a '{nombre_usuario_arg}'.")
+        return
+
+    if len(ctx.message.mentions) > 0:
+        member = ctx.message.mentions[0]
+        found_name = None
+        for nombre, datos in user_data.items():
+            if datos.get("discord_id") == member.id:
+                found_name = nombre
+                break
+        if found_name is None:
+            await ctx.send(embed=discord.Embed(
+                title="No Vinculado",
+                description="El usuario mencionado no está vinculado al sistema DKP.",
+                color=discord.Color.red()
+            ))
+            return
+        nombre_usuario = found_name
+    else:
+        nombre_usuario_lower = nombre_usuario_arg.lower()
+        found_name = None
+        for nombre, datos in user_data.items():
+            if nombre.lower() == nombre_usuario_lower:
+                found_name = nombre
+                break
+        if found_name is None:
+            await ctx.send(embed=discord.Embed(
+                title="Usuario no encontrado",
+                description=f"No se encontró el usuario con nombre **{nombre_usuario_arg}**.",
+                color=discord.Color.red()
+            ))
+            return
+        nombre_usuario = found_name
+
+    if user_data[nombre_usuario]["score"] < puntos_a_restar:
+        await ctx.send(embed=discord.Embed(
+            title="DKP Insuficiente",
+            description=f"El usuario **{nombre_usuario}** no tiene suficientes DKP para restar.",
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Administrador '{ctx.author}' intentó restar {puntos_a_restar} DKP a '{nombre_usuario}', pero solo tiene {user_data[nombre_usuario]['score']} DKP.")
         return
 
     user_data[nombre_usuario]["score"] -= puntos_a_restar
