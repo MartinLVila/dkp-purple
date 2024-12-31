@@ -365,7 +365,7 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
             no_encontrados.append(user_name)
 
     event_time = datetime.utcnow()
-    linked_users_at_event = set(user_data.keys())
+    linked_users_at_event = set(usuarios_final)
     events_info[nombre_evento] = {
         "timestamp": event_time,
         "linked_users": linked_users_at_event,
