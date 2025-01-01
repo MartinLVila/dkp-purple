@@ -2334,15 +2334,6 @@ async def llegue(ctx, nombre_evento: str):
         logger.info(f"Usuario '{nombre_usuario}' intentó llegar tarde dos veces al evento '{nombre_evento}'.")
         return
 
-    if nombre_usuario not in event["linked_users"]:
-        await ctx.send(embed=discord.Embed(
-            title="No Necesitas Justificación",
-            description="Estabas vinculado al momento del evento, tus puntos ya fueron ajustados.",
-            color=discord.Color.red()
-        ))
-        logger.info(f"Usuario '{nombre_usuario}' no necesita tardanza en '{nombre_evento}' (ya estaba vinculado).")
-        return
-
     puntaje = event["puntaje"]
     if nombre_usuario not in user_data:
         await ctx.send(embed=discord.Embed(
