@@ -2234,7 +2234,7 @@ async def estado(ctx):
             justified_events = datos.get("justified_events", set())
             if absence_until and ahora <= absence_until:
                 fecha = absence_until.astimezone(ZONA_HORARIA).strftime("%Y-%m-%d %H:%M")
-                estado = f"Justificado hasta {fecha} (GMT-3)"
+                estado = f"Hasta {fecha} (GMT-3)"
             elif justified_events:
                 eventos = ", ".join(sorted(justified_events))
                 estado = f"{eventos}"
