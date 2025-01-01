@@ -2201,6 +2201,58 @@ async def vacaciones(ctx, nombre: str):
         ))
         logger.info(f"Administrador '{ctx.author}' desactivó vacaciones para '{nombre}'.")
 
+@bot.command(name="estado")
+@requiere_vinculacion(comando_admin=True)
+async def estado(ctx):
+    """
+    Muestra una lista de usuarios con su estado actual:
+    - Vacaciones
+    - Justificado por eventos
+    - Justificado hasta una fecha
+    - Activo
+    """
+    if not user_data:
+        await ctx.send(embed=discord.Embed(
+            title="Sin Datos de Usuarios",
+            description="No hay usuarios registrados en el sistema DKP.",
+            color=discord.Color.blue()
+        ))
+        logger.info(f"Comando !estado ejecutado por '{ctx.author}' pero no hay datos de usuarios.")
+        return
+    
+    ahora = datetime.utcnow()
+    descripcion = "```\n"
+    descripcion += f"{'Nombre':<20} {'Estado':<40}\n"
+    descripcion += "-"*60 + "\n"
+    
+    for nombre, datos in user_data.items():
+        status = datos.get("status", "normal")
+        if status == "vacaciones":
+            estado = "Vacaciones"
+        else:
+            absence_until = datos.get("absence_until")
+            justified_events = datos.get("justified_events", set())
+            if absence_until and ahora <= absence_until:
+                fecha = absence_until.astimezone(ZONA_HORARIA).strftime("%Y-%m-%d %H:%M")
+                estado = f"Justificado hasta {fecha} (GMT-3)"
+            elif justified_events:
+                eventos = ", ".join(sorted(justified_events))
+                estado = f"Justificado por eventos: {eventos}"
+            else:
+                estado = "Activo"
+        
+        descripcion += f"{nombre:<20} {estado:<40}\n"
+    
+    descripcion += "```"
+    
+    embed = discord.Embed(
+        title="Estado de Usuarios",
+        description=descripcion,
+        color=discord.Color.blue()
+    )
+    await ctx.send(embed=embed)
+    logger.info(f"Comando !estado ejecutado por '{ctx.author}' (ID: {ctx.author.id}).")
+
 ############################
 #Comando !info
 ############################
