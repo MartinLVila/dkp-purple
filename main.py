@@ -2202,7 +2202,7 @@ async def vacaciones(ctx, nombre: str):
         logger.info(f"Administrador '{ctx.author}' desactivó vacaciones para '{nombre}'.")
 
 @bot.command(name="estado")
-@requiere_vinculacion(comando_admin=True)
+@requiere_vinculacion()
 async def estado(ctx):
     """
     Muestra una lista de usuarios con su estado actual:
