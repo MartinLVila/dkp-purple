@@ -2237,7 +2237,7 @@ async def estado(ctx):
                 estado = f"Justificado hasta {fecha} (GMT-3)"
             elif justified_events:
                 eventos = ", ".join(sorted(justified_events))
-                estado = f"Justificado por eventos: {eventos}"
+                estado = f"{eventos}"
             else:
                 estado = "Activo"
         
