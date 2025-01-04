@@ -1885,7 +1885,7 @@ async def asistencia(ctx):
                     "apikey": OCR_SPACE_API_KEY,
                     "language": "spa",
                     "OCREngine": "2",
-                    "filetype": "PNG",
+                    "filetype": "PNG"
                 },
                 timeout=60
             )
@@ -2219,7 +2219,8 @@ async def estado(ctx):
         ))
         logger.info(f"Comando !estado ejecutado por '{ctx.author}' pero no hay datos de usuarios.")
         return
-    
+
+    cantidad_usuarios = len(user_data)
     ahora = datetime.utcnow()
     descripcion = "```\n"
     descripcion += f"{'Nombre':<20} {'Estado':<40}\n"
@@ -2246,7 +2247,7 @@ async def estado(ctx):
     descripcion += "```"
     
     embed = discord.Embed(
-        title="Estado de Usuarios",
+        title=f"Estado de Usuarios ({cantidad_usuarios})",
         description=descripcion,
         color=discord.Color.blue()
     )
