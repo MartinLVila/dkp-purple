@@ -556,7 +556,7 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
 
 class EquipoView(View):
     def __init__(self, nombre_usuario: str):
-        super().__init__(timeout=300)
+        super().__init__(timeout=500)
         self.nombre_usuario = nombre_usuario
         self.main_weapon = None
         self.secondary_weapon = None
@@ -707,7 +707,7 @@ class GearScoreModal(Modal):
 
 class AusenciaInteractiveView(View):
     def __init__(self, author: discord.User):
-        super().__init__(timeout=300)
+        super().__init__(timeout=500)
         self.author = author
 
         self.select_tipo = Select(
