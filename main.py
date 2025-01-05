@@ -2343,10 +2343,10 @@ async def info(ctx):
         ("!dkp", "Consulta tu DKP o el de otro usuario."),
         ("!dkpdetalle", "Muestra los cambios de DKP en los últimos 7 días."),
         ("!topdkp", "Consulta el top 15 DKP por arma."),
-		("!equipo", "Configura tu equipo."),
+        ("!equipo", "Configura tu equipo."),
         ("!ausencia", "Justifica una ausencia por días o evento."),
         ("!llegue", "Justifica tu llegada tardía a un evento."),
-		("!estado", "Muestra el estado de los usuarios.")
+        ("!estado", "Muestra el estado de los usuarios.")
     ]
     
     admin_commands = [
@@ -2374,11 +2374,76 @@ async def info(ctx):
             value="\n".join([f"`{cmd}` - {desc}" for cmd, desc in admin_commands]),
             inline=False
         )
+
+    embed.add_field(
+        name="INFORMACIÓN DE DKP",
+        value=(
+            "**BOSS DE MUNDO:** 3 DKP\n"
+            "**RIFTTONE / BOONSTONE:** 9 DKP\n"
+            "**ARCHBOSS:** 21 DKP\n"
+            "**ASEDIO:** 45 DKP\n\n"
+            "**Falta sin justificar:** valor del evento multiplicado por 2\n"
+            "**Falta justificada:** valor del evento"
+        ),
+        inline=False
+    )
     
     embed.set_footer(text="Usa !dkp para más información sobre tus puntos DKP.")
     
     await ctx.send(embed=embed)
     logger.info(f"Comando !info ejecutado por '{ctx.author}' (ID: {ctx.author.id}).")
+    
+@bot.command(name="topgs")
+@requiere_vinculacion()
+async def topgs(ctx):
+    """
+    Muestra el top 15 de usuarios con mayor Gear Score.
+    """
+
+    lista_gs = []
+    for nombre, datos in user_data.items():
+        equipo = datos.get("equipo", {})
+        if "gear_score" in equipo:
+            gs = equipo["gear_score"]
+            arma_principal = equipo.get("arma_principal", "N/A")
+            arma_secundaria = equipo.get("arma_secundaria", "N/A")
+            dkp = datos["score"]
+            lista_gs.append((nombre, gs, arma_principal, arma_secundaria, dkp))
+
+    if not lista_gs:
+        await ctx.send(
+            embed=discord.Embed(
+                title="Top GS",
+                description="No hay usuarios con Gear Score configurado.",
+                color=discord.Color.red()
+            )
+        )
+        return
+
+    lista_gs.sort(key=lambda x: x[1], reverse=True)
+
+    top_15 = lista_gs[:15]
+
+    descripcion = "```\n"
+    descripcion += "{:<3} {:<15} {:<6} {:<20} {:<5}\n".format(
+        "#", "Nombre", "GS", "Armas", "DKP"
+    )
+    descripcion += "-" * 55 + "\n"
+    for i, (nombre, gs, arma_principal, arma_secundaria, dkp) in enumerate(top_15, start=1):
+        armas = f"{arma_principal}/{arma_secundaria}"
+        descripcion += "{:<3} {:<15} {:<6} {:<20} {:<5}\n".format(
+            i, nombre, gs, armas, dkp
+        )
+    descripcion += "```"
+
+    embed = discord.Embed(
+        title="Top 15 Gear Score",
+        description=descripcion,
+        color=discord.Color.green()
+    )
+    await ctx.send(embed=embed)
+
+    logger.info(f"Comando !topgs ejecutado por {ctx.author}. Se mostraron los primeros {len(top_15)} resultados.")
 
 ############################
 # Comando !llegue
