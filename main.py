@@ -1767,7 +1767,7 @@ async def score(ctx, nombre: str = None):
 @requiere_vinculacion()
 async def topdkp(ctx):
     """
-    Comando para mostrar el top 10 de DKP basado en armas seleccionadas.
+    Comando para mostrar el top 15 de DKP basado en armas seleccionadas.
     """
     class TopArmasView(View):
         def __init__(self, ctx):
@@ -1809,9 +1809,9 @@ async def topdkp(ctx):
                     )
                     return
 
-                usuarios_filtrados = sorted(usuarios_filtrados, key=lambda x: x[1], reverse=True)[:10]
+                usuarios_filtrados = sorted(usuarios_filtrados, key=lambda x: x[1], reverse=True)[:15]
 
-                desc = f"**Top 10 DKP para {arma_seleccionada}:**\n```\n"
+                desc = f"**Top 15 DKP para {arma_seleccionada}:**\n```\n"
                 desc += "{:<15} {:<5} {:<20} {:<10}\n".format("Nombre", "DKP", "Armas", "Rol")
                 desc += "-" * 55 + "\n"
                 for nombre, dkp, armas, rol in usuarios_filtrados:
@@ -1825,7 +1825,7 @@ async def topdkp(ctx):
 
                 self.clear_items()
                 await interaction.message.edit(embed=embed, view=None)
-                logger.info(f"Top 10 actualizado para '{arma_seleccionada}' por '{interaction.user}'.")
+                logger.info(f"Top 15 actualizado para '{arma_seleccionada}' por '{interaction.user}'.")
             except Exception as e:
                 logger.error(f"Error en mostrar_top_arma: {e}")
                 await interaction.response.send_message(
@@ -1836,7 +1836,7 @@ async def topdkp(ctx):
     view = TopArmasView(ctx)
     embed = discord.Embed(
         title="Top DKP por Arma",
-        description="Selecciona un arma para mostrar el top 10 de usuarios con esa arma.",
+        description="Selecciona un arma para mostrar el top 15 de usuarios con esa arma.",
         color=discord.Color.blue()
     )
     await ctx.send(embed=embed, view=view)
@@ -2342,7 +2342,7 @@ async def info(ctx):
     user_commands = [
         ("!dkp", "Consulta tu DKP o el de otro usuario."),
         ("!dkpdetalle", "Muestra los cambios de DKP en los últimos 7 días."),
-        ("!topdkp", "Consulta el top 10 DKP por arma."),
+        ("!topdkp", "Consulta el top 15 DKP por arma."),
 		("!equipo", "Configura tu equipo."),
         ("!ausencia", "Justifica una ausencia por días o evento."),
         ("!llegue", "Justifica tu llegada tardía a un evento."),
