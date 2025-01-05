@@ -2536,6 +2536,7 @@ async def armarparty(ctx, party_name: str = None, *user_names: str):
     
 @bot.command(name="partys")
 @commands.cooldown(1, 5, commands.BucketType.user)
+@requiere_vinculacion()
 async def partys(ctx):
     """
     Muestra todas las partys con sus miembros y detalles de equipo.
@@ -2574,7 +2575,75 @@ async def partys(ctx):
             color=discord.Color.green()
         )
         await ctx.send(embed=embed)
+
+@bot.command(name="party")
+@commands.cooldown(1, 5, commands.BucketType.user)
+@requiere_vinculacion()
+async def party(ctx):
+    """
+    Muestra la Party a la que pertenece el usuario que ejecuta el comando.
+    Uso: !party
+    """
+    user_id = ctx.author.id
     
+    nombre_usuario = None
+    for nombre, datos in user_data.items():
+        if datos.get("discord_id") == user_id:
+            nombre_usuario = nombre
+            break
+    
+    if not nombre_usuario:
+        await ctx.send(embed=discord.Embed(
+            title="No Vinculado",
+            description="No se encontró tu nombre en el sistema. Por favor, registra tu usuario.",
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Usuario con ID {user_id} no está vinculado en user_data.")
+        return
+    
+    party_found = None
+    for party_name, miembros in PARTYS.items():
+        if nombre_usuario in miembros:
+            party_found = party_name
+            break
+    
+    if not party_found:
+        await ctx.send(embed=discord.Embed(
+            title="Sin Party",
+            description="No perteneces a ninguna Party actualmente.",
+            color=discord.Color.orange()
+        ))
+        logger.info(f"Usuario '{nombre_usuario}' no pertenece a ninguna Party.")
+        return
+    
+    miembros = PARTYS[party_found]
+    lines = []
+    lines.append(f"{'Nick':<15} {'Armas':<22} {'Rol':<15}")
+    lines.append("-" * 55)
+    
+    for miembro in miembros:
+        datos = user_data.get(miembro)
+        if not datos:
+            lines.append(f"{miembro:<15} {'?':<22} {'?':<15}")
+            continue
+        equipo = datos.get("equipo", {})
+        main_weapon = equipo.get("arma_principal", "N/A")
+        sec_weapon = equipo.get("arma_secundaria", "N/A")
+        rol = equipo.get("rol", "N/A")
+        armas = f"{main_weapon}/{sec_weapon}"
+        lines.append(f"{miembro:<15} {armas:<22} {rol:<15}")
+    
+    description = "```\n" + "\n".join(lines) + "\n```"
+    
+    embed = discord.Embed(
+        title=f"🛡️ {party_found}",
+        description=description,
+        color=discord.Color.green()
+    )
+    
+    await ctx.send(embed=embed)
+    logger.info(f"Usuario '{nombre_usuario}' consultó su Party '{party_found}'.")
+
 ############################
 # Comando para Gestionar DKP
 ############################
@@ -2857,7 +2926,8 @@ async def info(ctx):
         ("!ausencia", "Justifica una ausencia por días o evento."),
         ("!llegue", "Justifica tu llegada tardía a un evento."),
         ("!estado", "Muestra el estado de los usuarios."),
-        ("!partys", "Muestra la lista de partys.")
+        ("!partys", "Muestra la lista de partys."),
+		("!party", "Muestra tu party actual.")
     ]
     
     admin_commands = [
