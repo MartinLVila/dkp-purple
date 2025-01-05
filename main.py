@@ -2015,6 +2015,55 @@ async def borrarusuario(ctx, nombre: str):
         color=discord.Color.green()
     ))
     logger.info(f"Usuario '{nombre}' eliminado por '{ctx.author}'. DKP: {puntos}.")
+    
+@bot.command(name="revisarvinculacion")
+@requiere_vinculacion(comando_admin=True)
+async def revisar_vinculacion(ctx, role_id: int):
+    """
+    Compara los miembros de un rol de Discord (por su ID) con los usuarios del sistema DKP (user_data)
+    y muestra cuáles NO están vinculados.
+    Uso: !revisarvinculacion <RoleID>
+    """
+    
+    role = ctx.guild.get_role(role_id)
+    if role is None:
+        await ctx.send(embed=discord.Embed(
+            title="Rol no encontrado",
+            description=f"No se encontró el rol con ID **{role_id}** en este servidor.",
+            color=discord.Color.red()
+        ))
+        return
+
+    ids_vinculados = {
+        datos.get("discord_id"): nombre
+        for nombre, datos in user_data.items()
+        if datos.get("discord_id")
+    }
+
+    no_vinculados = []
+    for member in role.members:
+        if member.id not in ids_vinculados:
+            no_vinculados.append(member)
+
+    if not no_vinculados:
+        embed = discord.Embed(
+            title=f"Rol: {role.name} (ID: {role.id})",
+            description="Todos los usuarios de este rol están **vinculados** en el sistema DKP.",
+            color=discord.Color.green()
+        )
+    else:
+        listado_no_vinculados = "\n".join(member.mention for member in no_vinculados)
+        embed = discord.Embed(
+            title=f"Rol: {role.name} (ID: {role.id})",
+            description=(
+                "Los siguientes usuarios **no** están vinculados en el sistema DKP:\n\n"
+                f"{listado_no_vinculados}"
+            ),
+            color=discord.Color.red()
+        )
+        embed.set_footer(text=f"Total de no vinculados: {len(no_vinculados)}")
+
+    await ctx.send(embed=embed)
 
 ############################
 # Comando para Gestionar DKP
@@ -2309,7 +2358,8 @@ async def info(ctx):
         ("!borrarusuario <nombre>", "Elimina un usuario del sistema DKP."),
         ("!sumardkp <nombre> <puntos>", "Suma puntos DKP a un usuario."),
         ("!restardkp <miembro> <puntos>", "Resta puntos DKP a un usuario."),
-        ("!asistencia <imagenes>", "Proceso interactivo para generar el DKP")
+        ("!asistencia <imagenes>", "Proceso interactivo para generar el DKP"),
+        ("!revisarvinculacion <Rol ID>", "Compara los usuarios con los vinculados")
     ]
     
     embed.add_field(
