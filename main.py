@@ -1,3 +1,5 @@
+### NEED MODULES ###
+
 import os
 import discord
 import json
@@ -63,11 +65,13 @@ DATA_FILE = "scores.json"
 EVENTS_FILE = "events.json"
 REGISTERED_EVENTS_FILE = "registered_events.json"
 HISTORY_FILE = "score_history.json"
+PARTYS_FILE = "partys.json"
 
 user_data = {}
 events_info = {}
 registered_events = set()
 score_history = {}
+PARTYS = {}
 
 def cargar_datos():
     global user_data
@@ -228,11 +232,22 @@ def guardar_eventos_registrados():
         logger.info(f"Eventos registrados guardados correctamente en '{REGISTERED_EVENTS_FILE}'.")
     except Exception as e:
         logger.error(f"Error al guardar eventos registrados en '{REGISTERED_EVENTS_FILE}': {e}")
+        
+def cargar_partys():
+    global PARTYS
+    if os.path.exists(PARTYS_FILE):
+        try:
+            with open(PARTYS_FILE, "r", encoding="utf-8") as f:
+                PARTYS = json.load(f)
+        except json.JSONDecodeError:
+            PARTYS = {}
+            print(f"Error al leer {PARTYS_FILE}. Se inicializa PARTYS vacío.")
+    else:
+        PARTYS = {}
 
-
-HISTORY_FILE = "score_history.json"
-score_history = {}
-
+def save_partys():
+    with open(PARTYS_FILE, "w", encoding="utf-8") as f:
+        json.dump(PARTYS, f, indent=4, ensure_ascii=False)
 
 def cargar_historial_dkp():
     global score_history
@@ -287,6 +302,7 @@ async def on_ready():
     cargar_eventos()
     cargar_eventos_registrados()
     cargar_historial_dkp()
+    cargar_partys()
     
     print(f"Bot conectado como {bot.user}")
     logger.info(f"Bot conectado como {bot.user} (ID: {bot.user.id})")
@@ -553,7 +569,371 @@ async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listade
             except Exception as e:
                 logger.error(f"Error al enviar notificación consolidada: {e}")
 
+class CrearPartyModal(Modal):
+    def __init__(self):
+        super().__init__(title="Crear Nueva Party")
 
+        self.nombre = TextInput(
+            label="Nombre de la Party",
+            placeholder="Ej: Party 1 Frontline",
+            required=True,
+            max_length=50
+        )
+        self.add_item(self.nombre)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        nombre_party = self.nombre.value.strip()
+        if not nombre_party:
+            await interaction.response.send_message("El nombre de la party no puede estar vacío.", ephemeral=True)
+            return
+
+        if nombre_party in PARTYS:
+            await interaction.response.send_message(f"La party **{nombre_party}** ya existe.", ephemeral=True)
+            return
+
+        PARTYS[nombre_party] = []
+        save_partys()
+        await interaction.response.send_message(f"Se ha creado la party **{nombre_party}** exitosamente.", ephemeral=True)
+
+class ArmarPartysView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+        self.crear_party_button = Button(label="Crear Party", style=discord.ButtonStyle.green, custom_id="crear_party")
+        self.crear_party_button.callback = self.crear_party_callback
+        self.add_item(self.crear_party_button)
+
+        self.eliminar_party_button = Button(label="Eliminar Party", style=discord.ButtonStyle.red, custom_id="eliminar_party")
+        self.eliminar_party_button.callback = self.eliminar_party_callback
+        self.add_item(self.eliminar_party_button)
+
+        self.agregar_miembro_button = Button(label="Agregar Miembro", style=discord.ButtonStyle.blurple, custom_id="agregar_miembro")
+        self.agregar_miembro_button.callback = self.agregar_miembro_callback
+        self.add_item(self.agregar_miembro_button)
+
+        self.quitar_miembro_button = Button(label="Quitar Miembro", style=discord.ButtonStyle.blurple, custom_id="quitar_miembro")
+        self.quitar_miembro_button.callback = self.quitar_miembro_callback
+        self.add_item(self.quitar_miembro_button)
+
+        self.listar_partys_button = Button(label="Listar Partys", style=discord.ButtonStyle.grey, custom_id="listar_partys")
+        self.listar_partys_button.callback = self.listar_partys_callback
+        self.add_item(self.listar_partys_button)
+        
+        self.cancelar_button = Button(label="Cancelar", style=discord.ButtonStyle.danger, custom_id="cancelar")
+        self.cancelar_button.callback = self.cancelar_callback
+        self.add_item(self.cancelar_button)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id not in ADMINS_IDS:
+            await interaction.response.send_message("No tienes permisos para usar este comando.", ephemeral=True)
+            return False
+        return True
+
+    async def crear_party_callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(CrearPartyModal())
+
+    async def eliminar_party_callback(self, interaction: discord.Interaction):
+        if not PARTYS:
+            await interaction.response.send_message("No hay partys para eliminar.", ephemeral=True)
+            return
+        select = Select(
+            placeholder="Selecciona la party a eliminar...",
+            options=[discord.SelectOption(label=party, description=f"Eliminar {party}") for party in PARTYS.keys()],
+            custom_id="select_eliminar_party"
+        )
+        select.callback = self.select_eliminar_party
+        view = View(timeout=60)
+        view.add_item(select)
+        cancelar = Button(label="Cancelar", style=discord.ButtonStyle.danger, custom_id="cancelar_eliminar_party")
+        cancelar.callback = self.cancelar_eliminar_party
+        view.add_item(cancelar)
+        await interaction.response.send_message("Selecciona la party que deseas eliminar:", view=view, ephemeral=True)
+
+    async def select_eliminar_party(self, interaction: discord.Interaction):
+        party_to_delete = interaction.data['values'][0]
+        del PARTYS[party_to_delete]
+        save_partys()
+        await interaction.response.send_message(f"Se ha eliminado la party **{party_to_delete}**.", ephemeral=True)
+        logger.info(f"Party '{party_to_delete}' eliminada por {interaction.user}.")
+
+    async def cancelar_eliminar_party(self, interaction: discord.Interaction):
+        await interaction.response.send_message("Operación de eliminación de party cancelada.", ephemeral=True)
+
+    async def agregar_miembro_callback(self, interaction: discord.Interaction):
+        if not PARTYS:
+            await interaction.response.send_message("No hay partys definidas. Crea una party primero.", ephemeral=True)
+            return
+        select = Select(
+            placeholder="Selecciona la party a modificar...",
+            options=[discord.SelectOption(label=party, description=f"Agregar miembro a {party}") for party in PARTYS.keys()],
+            custom_id="select_agregar_party"
+        )
+        select.callback = self.select_agregar_party
+        view = View(timeout=60)
+        view.add_item(select)
+        cancelar = Button(label="Cancelar", style=discord.ButtonStyle.danger, custom_id="cancelar_agregar_miembro")
+        cancelar.callback = self.cancelar_agregar_miembro
+        view.add_item(cancelar)
+        await interaction.response.send_message("Selecciona la party a la que deseas agregar un miembro:", view=view, ephemeral=True)
+
+    async def select_agregar_party(self, interaction: discord.Interaction):
+        selected_party = interaction.data['values'][0]
+        miembros_actuales = set(PARTYS[selected_party])
+        candidatos = {nombre for nombre in user_data.keys() if nombre not in miembros_actuales}
+
+        if not candidatos:
+            await interaction.response.send_message("No hay usuarios disponibles para agregar.", ephemeral=True)
+            return
+
+        view = AgregarMiembroView(selected_party)
+        embed = discord.Embed(
+            title=f"Agregar Miembro a {selected_party}",
+            description="Filtra los miembros por arma, rol o nombre antes de agregarlos.",
+            color=discord.Color.blurple()
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    async def quitar_miembro_callback(self, interaction: discord.Interaction):
+        if not PARTYS:
+            await interaction.response.send_message("No hay partys definidas.", ephemeral=True)
+            return
+
+        select = Select(
+            placeholder="Selecciona la party a modificar...",
+            options=[discord.SelectOption(label=party, description=f"Quitar miembro de {party}") for party in PARTYS.keys()],
+            custom_id="select_quitar_party"
+        )
+        select.callback = self.select_quitar_party
+        view = View(timeout=60)
+        view.add_item(select)
+        cancelar = Button(label="Cancelar", style=discord.ButtonStyle.danger, custom_id="cancelar_quitar_miembro")
+        cancelar.callback = self.cancelar_quitar_miembro
+        view.add_item(cancelar)
+        await interaction.response.send_message("Selecciona la party de la que deseas quitar un miembro:", view=view, ephemeral=True)
+
+    async def select_quitar_party(self, interaction: discord.Interaction):
+        selected_party = interaction.data['values'][0]
+        miembros_actuales = PARTYS[selected_party]
+        if not miembros_actuales:
+            await interaction.response.send_message("Esta party está vacía.", ephemeral=True)
+            return
+        select = Select(
+            placeholder="Selecciona el miembro a quitar...",
+            options=[discord.SelectOption(label=nombre, value=nombre) for nombre in miembros_actuales],
+            custom_id="select_quitar_miembro_final"
+        )
+        select.callback = lambda i: self.confirmar_quitar_miembro(i, selected_party)
+        view = View(timeout=60)
+        view.add_item(select)
+        await interaction.response.send_message(f"Selecciona el miembro que deseas quitar de **{selected_party}**:", view=view, ephemeral=True)
+
+    async def confirmar_quitar_miembro(self, interaction: discord.Interaction, party: str):
+        miembro = interaction.data['values'][0]
+        PARTYS[party].remove(miembro)
+        save_partys()
+        await interaction.response.send_message(f"**{miembro}** ha sido quitado de **{party}**.", ephemeral=True)
+        logger.info(f"Miembro '{miembro}' quitado de la party '{party}' por {interaction.user}.")
+
+    async def listar_partys_callback(self, interaction: discord.Interaction):
+        if not PARTYS:
+            await interaction.response.send_message("No hay partys definidas.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🛡️ Partys Actuales",
+            description="\n".join(PARTYS.keys()),
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    async def cancelar_callback(self, interaction: discord.Interaction):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="Operación cancelada.", embed=None, view=self)
+        logger.info(f"Operación de administrar partys cancelada por {interaction.user}.")
+
+    async def cancelar_agregar_miembro(self, interaction: discord.Interaction):
+        view = interaction.message.components[-1].children[0].view
+        self.miembros_filtrados = set(user_data.keys())
+        self.filtro_nombre = ""
+        self.select_arma.values = []
+        self.select_rol.values = []
+        self.select_nombre.values = []
+
+        await interaction.response.send_message("La operación de agregar miembro ha sido cancelada.", ephemeral=True)
+        logger.info(f"Operación de agregar miembro cancelada por {interaction.user}.")
+
+    async def cancelar_quitar_miembro(self, interaction: discord.Interaction):
+        await interaction.response.send_message("La operación de quitar miembro ha sido cancelada.", ephemeral=True)
+        logger.info(f"Operación de quitar miembro cancelada por {interaction.user}.")
+
+class AgregarMiembroView(View):
+    def __init__(self, party_name: str):
+        super().__init__(timeout=300)
+        self.party_name = party_name
+
+        self.select_arma = Select(
+            placeholder="Filtrar por Arma",
+            min_values=0,
+            max_values=1,
+            options=[discord.SelectOption(label="Todos", value="all")] + 
+                   [discord.SelectOption(label=arma, value=arma) for arma in sorted(ARMAS_DISPONIBLES)],
+            custom_id="select_filtrar_arma"
+        )
+        self.select_arma.callback = self.filtrar_por_arma
+        self.add_item(self.select_arma)
+
+        self.select_rol = Select(
+            placeholder="Filtrar por Rol",
+            min_values=0,
+            max_values=1,
+            options=[discord.SelectOption(label="Todos", value="all")] + 
+                   [discord.SelectOption(label=rol, value=rol) for rol in sorted(ROLES_DISPONIBLES)],
+            custom_id="select_filtrar_rol"
+        )
+        self.select_rol.callback = self.filtrar_por_rol
+        self.add_item(self.select_rol)
+
+        self.select_nombre = Select(
+            placeholder="Filtrar por Nombre",
+            min_values=0,
+            max_values=1,
+            options=[discord.SelectOption(label="Todos", value="all")] + 
+                   [discord.SelectOption(label="Ingresar Nombre", value="ingresar_nombre")],
+            custom_id="select_filtrar_nombre"
+        )
+        self.select_nombre.callback = self.filtrar_por_nombre
+        self.add_item(self.select_nombre)
+
+        self.btn_mostrar = Button(label="Mostrar Usuarios", style=discord.ButtonStyle.green, custom_id="btn_mostrar_usuarios")
+        self.btn_mostrar.callback = self.mostrar_usuarios
+        self.add_item(self.btn_mostrar)
+
+        self.btn_cancelar = Button(label="Cancelar", style=discord.ButtonStyle.danger, custom_id="btn_cancelar_filtro")
+        self.btn_cancelar.callback = self.cancelar_filtro
+        self.add_item(self.btn_cancelar)
+
+        self.miembros_filtrados = set(user_data.keys())
+        self.filtro_nombre = ""
+
+    async def filtrar_por_arma(self, interaction: discord.Interaction):
+        arma_seleccionada = interaction.data['values'][0]
+        if arma_seleccionada == "all":
+            armas_filtradas = set(user_data.keys())
+        else:
+            armas_filtradas = {
+                nombre for nombre, datos in user_data.items() 
+                if datos.get("equipo", {}).get("arma_principal") == arma_seleccionada or 
+                   datos.get("equipo", {}).get("arma_secundaria") == arma_seleccionada
+            }
+        self.miembros_filtrados &= armas_filtradas
+        await interaction.response.send_message(f"Filtrado por arma: **{arma_seleccionada}**.", ephemeral=True)
+        logger.info(f"Filtrado por arma '{arma_seleccionada}' aplicado en la party '{self.party_name}' por {interaction.user}.")
+
+    async def filtrar_por_rol(self, interaction: discord.Interaction):
+        rol_seleccionado = interaction.data['values'][0]
+        if rol_seleccionado == "all":
+            roles_filtrados = set(user_data.keys())
+        else:
+            roles_filtrados = {
+                nombre for nombre, datos in user_data.items() 
+                if datos.get("equipo", {}).get("rol") == rol_seleccionado
+            }
+        self.miembros_filtrados &= roles_filtrados
+        await interaction.response.send_message(f"Filtrado por rol: **{rol_seleccionado}**.", ephemeral=True)
+        logger.info(f"Filtrado por rol '{rol_seleccionado}' aplicado en la party '{self.party_name}' por {interaction.user}.")
+
+    async def filtrar_por_nombre(self, interaction: discord.Interaction):
+        if "ingresar_nombre" in interaction.data['values']:
+            await interaction.response.send_modal(FiltrarPorNombreModal(self))
+        else:
+            self.miembros_filtrados = set(user_data.keys())
+            await interaction.response.send_message("Filtrado por nombre: **Todos**.", ephemeral=True)
+            logger.info(f"Filtrado por nombre reseteado en la party '{self.party_name}' por {interaction.user}.")
+
+    async def mostrar_usuarios(self, interaction: discord.Interaction):
+        miembros_actuales = set(PARTYS[self.party_name])
+        miembros_disponibles = [nombre for nombre in self.miembros_filtrados if nombre not in miembros_actuales]
+
+        if not miembros_disponibles:
+            await interaction.response.send_message("No hay usuarios disponibles para agregar con los filtros seleccionados.", ephemeral=True)
+            return
+
+        if len(miembros_disponibles) > 25:
+            await interaction.response.send_message(
+                "La lista de usuarios disponibles excede el límite de 25 opciones. Por favor, ajusta los filtros para reducir la lista.",
+                ephemeral=True
+            )
+            logger.warning(f"Lista de miembros disponibles excede 25 en la party '{self.party_name}' por {interaction.user}.")
+            return
+
+        select = Select(
+            placeholder="Selecciona los miembros a agregar...",
+            min_values=1,
+            max_values=min(len(miembros_disponibles), 25),
+            options=[discord.SelectOption(label=nombre, value=nombre) for nombre in sorted(miembros_disponibles)],
+            custom_id="select_agregar_miembros_final"
+        )
+        select.callback = lambda i: self.confirmar_agregar_final(i, self.party_name)
+        view = View(timeout=300)
+        view.add_item(select)
+        await interaction.response.send_message(f"Selecciona los miembros a agregar a **{self.party_name}**:", view=view, ephemeral=True)
+        logger.info(f"Mostrando usuarios para agregar a la party '{self.party_name}' por {interaction.user}.")
+
+    async def confirmar_agregar_final(self, interaction: discord.Interaction, party: str):
+        miembros_a_agregar = interaction.data['values']
+        if not miembros_a_agregar:
+            await interaction.response.send_message("No se seleccionaron miembros para agregar.", ephemeral=True)
+            return
+
+        for miembro in miembros_a_agregar:
+            PARTYS[party].append(miembro)
+
+        save_partys()
+        await interaction.response.send_message(f"Se han agregado {', '.join(miembros_a_agregar)} a **{party}**.", ephemeral=True)
+        logger.info(f"Miembros {miembros_a_agregar} agregados a la party '{party}' por {interaction.user}.")
+
+    async def cancelar_filtro(self, interaction: discord.Interaction):
+        self.miembros_filtrados = set(user_data.keys())
+        self.filtro_nombre = ""
+        
+        self.select_arma.values = ["all"] if "all" in [option.value for option in self.select_arma.options] else []
+        self.select_rol.values = ["all"] if "all" in [option.value for option in self.select_rol.options] else []
+        self.select_nombre.values = ["all"] if "all" in [option.value for option in self.select_nombre.options] else []
+        
+        for select in [self.select_arma, self.select_rol, self.select_nombre]:
+            select.disabled = False
+
+        await interaction.response.send_message("Los filtros han sido reseteados y la operación ha sido cancelada.", ephemeral=True)
+        logger.info(f"Filtrado de miembros en party '{self.party_name}' cancelado por {interaction.user}.")
+        
+class FiltrarPorNombreModal(Modal):
+    def __init__(self, view: AgregarMiembroView):
+        super().__init__(title="Filtrar por Nombre")
+        self.view = view
+
+        self.nombre = TextInput(
+            label="Nombre o Parte del Nombre",
+            placeholder="Ingresa el nombre completo o parte del nombre",
+            required=True,
+            max_length=50
+        )
+        self.add_item(self.nombre)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        nombre_filtro = self.nombre.value.strip().lower()
+        if not nombre_filtro:
+            await interaction.response.send_message("El campo de nombre no puede estar vacío.", ephemeral=True)
+            return
+
+        nombres_filtrados = {
+            nombre for nombre in user_data.keys() 
+            if nombre_filtro in nombre.lower()
+        }
+        self.view.miembros_filtrados &= nombres_filtrados
+        await interaction.response.send_message(f"Filtrado por nombre: **'{self.nombre.value}'**.", ephemeral=True)
+        logger.info(f"Filtrado por nombre '{self.nombre.value}' aplicado en la party '{self.view.party_name}' por {interaction.user}.")
+        
 class EquipoView(View):
     def __init__(self, nombre_usuario: str):
         super().__init__(timeout=500)
@@ -2064,7 +2444,137 @@ async def revisar_vinculacion(ctx, role_id: int):
         embed.set_footer(text=f"Total de no vinculados: {len(no_vinculados)}")
 
     await ctx.send(embed=embed)
+    
+@bot.command(name="armarparty")
+@requiere_vinculacion(comando_admin=True)
+async def armarparty(ctx, party_name: str = None, *user_names: str):
+    """
+    Agrega múltiples miembros a una Party específica o muestra la interfaz interactiva.
+    Uso:
+        - Modo Interactivo: !armarparty
+        - Modo Comando: !armarparty NombreParty NombreUsuario
+    """
+    if not party_name:
+        view = ArmarPartysView()
+        embed = discord.Embed(
+            title="🛠️ Administrar Partys",
+            description="Usa los botones de abajo para gestionar las partys.",
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed, view=view)
+        logger.info(f"Usuario '{ctx.author}' inició el modo interactivo de !armarparty.")
+        return
 
+    party_name_normalizado = party_name.strip()
+
+    if party_name_normalizado not in PARTYS:
+        await ctx.send(embed=discord.Embed(
+            title="Party No Encontrada",
+            description=f"La Party **{party_name_normalizado}** no existe. Usa `!armarparty` para crear una nueva Party.",
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Intento de agregar miembros a una Party inexistente: '{party_name_normalizado}' por {ctx.author}.")
+        return
+
+    usuarios_a_agregar = []
+    usuarios_no_encontrados = []
+    usuarios_en_otra_party = []
+
+    for nombre in user_names:
+        nombre_encontrado = None
+        for key in user_data.keys():
+            if key.lower() == nombre.lower():
+                nombre_encontrado = key
+                break
+
+        if not nombre_encontrado:
+            usuarios_no_encontrados.append(nombre)
+            continue
+
+        esta_en_otra_party = False
+        for p_name, miembros in PARTYS.items():
+            if nombre_encontrado in miembros and p_name != party_name_normalizado:
+                esta_en_otra_party = True
+                break
+
+        if esta_en_otra_party:
+            usuarios_en_otra_party.append(nombre_encontrado)
+            continue
+
+        usuarios_a_agregar.append(nombre_encontrado)
+
+    if usuarios_no_encontrados or usuarios_en_otra_party:
+        descripcion = ""
+        if usuarios_no_encontrados:
+            descripcion += "**Usuarios No Encontrados:**\n" + ", ".join(usuarios_no_encontrados) + "\n"
+        if usuarios_en_otra_party:
+            descripcion += "**Usuarios Ya en Otra Party:**\n" + ", ".join(usuarios_en_otra_party)
+        await ctx.send(embed=discord.Embed(
+            title="Errores al Agregar Miembros",
+            description=descripcion,
+            color=discord.Color.red()
+        ))
+        logger.warning(f"Errores al agregar miembros a la Party '{party_name_normalizado}' por {ctx.author}. No se agregaron usuarios.")
+        return
+
+    if usuarios_a_agregar:
+        PARTYS[party_name_normalizado].extend(usuarios_a_agregar)
+        save_partys()
+        await ctx.send(embed=discord.Embed(
+            title="Miembros Agregados",
+            description=f"Se han agregado los siguientes miembros a la Party **{party_name_normalizado}**:\n" + ", ".join(usuarios_a_agregar),
+            color=discord.Color.green()
+        ))
+        logger.info(f"Miembros {usuarios_a_agregar} agregados a la Party '{party_name_normalizado}' por {ctx.author}.")
+    else:
+        await ctx.send(embed=discord.Embed(
+            title="Sin Acciones Realizadas",
+            description="No se agregaron miembros ya que no se proporcionaron nombres válidos.",
+            color=discord.Color.yellow()
+        ))
+        logger.info(f"No se agregaron miembros a la Party '{party_name_normalizado}' ya que no se proporcionaron nombres válidos por {ctx.author}.")
+    
+@bot.command(name="partys")
+@commands.cooldown(1, 5, commands.BucketType.user)
+async def partys(ctx):
+    """
+    Muestra todas las partys con sus miembros y detalles de equipo.
+    """
+    if not PARTYS:
+        await ctx.send("No hay partys definidas todavía.")
+        return
+
+    for party_name, miembros in PARTYS.items():
+        lines = []
+        lines.append(f"{'Nick':<15} {'Armas':<22} {'Rol':<15}")
+        lines.append("-" * 55)
+
+        if not miembros:
+            lines.append("(Vacío)")
+        else:
+            for nombre_usuario in miembros:
+                datos = user_data.get(nombre_usuario)
+                if not datos:
+                    lines.append(f"{nombre_usuario:<15} {'?':<22} {'?':<15}")
+                    continue
+
+                equipo = datos.get("equipo", {})
+                main_weapon = equipo.get("arma_principal", "N/A")
+                sec_weapon = equipo.get("arma_secundaria", "N/A")
+                rol = equipo.get("rol", "N/A")
+
+                armas = f"{main_weapon}/{sec_weapon}"
+
+                lines.append(f"{nombre_usuario:<15} {armas:<22} {rol:<15}")
+
+        description = "```\n" + "\n".join(lines) + "\n```"
+        embed = discord.Embed(
+            title=party_name,
+            description=description,
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+    
 ############################
 # Comando para Gestionar DKP
 ############################
@@ -2346,7 +2856,8 @@ async def info(ctx):
         ("!equipo", "Configura tu equipo."),
         ("!ausencia", "Justifica una ausencia por días o evento."),
         ("!llegue", "Justifica tu llegada tardía a un evento."),
-        ("!estado", "Muestra el estado de los usuarios.")
+        ("!estado", "Muestra el estado de los usuarios."),
+        ("!partys", "Muestra la lista de partys.")
     ]
     
     admin_commands = [
@@ -2359,7 +2870,8 @@ async def info(ctx):
         ("!sumardkp <nombre> <puntos>", "Suma puntos DKP a un usuario."),
         ("!restardkp <miembro> <puntos>", "Resta puntos DKP a un usuario."),
         ("!asistencia <imagenes>", "Proceso interactivo para generar el DKP"),
-        ("!revisarvinculacion <Rol ID>", "Compara los usuarios con los vinculados")
+        ("!revisarvinculacion <Rol ID>", "Compara los usuarios con los vinculados"),
+        ("!armarparty <nombre_usuario>", "Sin argumentos proceso interactivo para armar partys, con argumentos bulk")
     ]
     
     embed.add_field(
