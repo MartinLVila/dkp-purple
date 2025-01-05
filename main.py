@@ -34,6 +34,10 @@ ROLES_DISPONIBLES = [
     "Tank", "Healer"
 ]
 
+MAX_EMBED_DESCRIPTION = 4096
+CODE_BLOCK_OVERHEAD = 8
+CHUNK_LENGTH = MAX_EMBED_DESCRIPTION - CODE_BLOCK_OVERHEAD
+
 logging.basicConfig(
     filename='bot_commands.log',
     level=logging.INFO,
@@ -329,6 +333,23 @@ def requiere_vinculacion(comando_admin=False):
             return await func(ctx, *args, **kwargs)
         return wrapper
     return decorator
+
+def split_into_chunks(text: str, max_length: int = CHUNK_LENGTH) -> list[str]:
+    lines = text.splitlines(keepends=True)
+    chunks = []
+    current_chunk = ""
+
+    for line in lines:
+        if len(current_chunk) + len(line) > max_length:
+            chunks.append(current_chunk)
+            current_chunk = line
+        else:
+            current_chunk += line
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
 
 async def handle_evento(nombre_evento: str, puntaje: int, noresta: bool, listadenombres: List[str], channel: discord.TextChannel, executor: discord.User):
     """
@@ -2204,28 +2225,21 @@ async def vacaciones(ctx, nombre: str):
 @bot.command(name="estado")
 @requiere_vinculacion()
 async def estado(ctx):
-    """
-    Muestra una lista de usuarios con su estado actual:
-    - Vacaciones
-    - Justificado por eventos
-    - Justificado hasta una fecha
-    - Activo
-    """
     if not user_data:
         await ctx.send(embed=discord.Embed(
             title="Sin Datos de Usuarios",
             description="No hay usuarios registrados en el sistema DKP.",
             color=discord.Color.blue()
         ))
-        logger.info(f"Comando !estado ejecutado por '{ctx.author}' pero no hay datos de usuarios.")
         return
 
     cantidad_usuarios = len(user_data)
     ahora = datetime.utcnow()
-    descripcion = "```\n"
-    descripcion += f"{'Nombre':<20} {'Estado':<40}\n"
-    descripcion += "-"*60 + "\n"
-    
+
+    lines = []
+    lines.append(f"{'Nombre':<20} {'Estado':<40}")
+    lines.append("-"*60)
+
     for nombre, datos in user_data.items():
         status = datos.get("status", "normal")
         if status == "vacaciones":
@@ -2233,26 +2247,31 @@ async def estado(ctx):
         else:
             absence_until = datos.get("absence_until")
             justified_events = datos.get("justified_events", set())
+
             if absence_until and ahora <= absence_until:
                 fecha = absence_until.astimezone(ZONA_HORARIA).strftime("%Y-%m-%d %H:%M")
                 estado = f"Hasta {fecha} (GMT-3)"
             elif justified_events:
                 eventos = ", ".join(sorted(justified_events))
-                estado = f"{eventos}"
+                estado = eventos
             else:
                 estado = "Activo"
-        
-        descripcion += f"{nombre:<20} {estado:<40}\n"
-    
-    descripcion += "```"
-    
-    embed = discord.Embed(
-        title=f"Estado de Usuarios ({cantidad_usuarios})",
-        description=descripcion,
-        color=discord.Color.blue()
-    )
-    await ctx.send(embed=embed)
-    logger.info(f"Comando !estado ejecutado por '{ctx.author}' (ID: {ctx.author.id}).")
+
+        lines.append(f"{nombre:<20} {estado:<40}")
+
+    final_text = "\n".join(lines)
+
+    chunks = split_into_chunks(final_text, CHUNK_LENGTH)
+
+    for i, chunk in enumerate(chunks, start=1):
+        description = f"```\n{chunk}\n```"
+
+        embed = discord.Embed(
+            title=f"Estado de Usuarios ({cantidad_usuarios}) - Parte {i}",
+            description=description,
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
 
 ############################
 #Comando !info
@@ -2277,7 +2296,8 @@ async def info(ctx):
         ("!topdkp", "Consulta el top 10 DKP por arma."),
 		("!equipo", "Configura tu equipo."),
         ("!ausencia", "Justifica una ausencia por días o evento."),
-        ("!llegue", "Justifica tu llegada tardía a un evento.")
+        ("!llegue", "Justifica tu llegada tardía a un evento."),
+		("!estado", "Muestra el estado de los usuarios.")
     ]
     
     admin_commands = [
