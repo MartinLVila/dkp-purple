@@ -1530,7 +1530,7 @@ class AsistenciaView(View):
             color=discord.Color.orange()
         )
 
-        dkp_valores = [3, 9, 21, 45]
+        dkp_valores = [2, 3, 9, 21, 45]
         for dkp in dkp_valores:
             boton = Button(label=str(dkp), style=ButtonStyle.primary, custom_id=f"dkp_{dkp}")
             boton.callback = self.seleccionar_dkp
@@ -2960,6 +2960,7 @@ async def info(ctx):
     embed.add_field(
         name="INFORMACIÓN DE DKP",
         value=(
+            "**ISLA:** 2 DKP\n"
             "**BOSS DE MUNDO:** 3 DKP\n"
             "**RIFTTONE / BOONSTONE:** 9 DKP\n"
             "**ARCHBOSS:** 21 DKP\n"
