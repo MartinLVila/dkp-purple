@@ -1634,7 +1634,10 @@ class AsistenciaView(View):
             executor=interaction.user
         )
 
-        self.clear_items()
+        for child in self.children:
+            if isinstance(child, Button) and child.custom_id in ["confirmar", "cancelar"]:
+            	child.disabled = True
+
         embed_final = discord.Embed(
             title="Asistencia Registrada",
             description="La asistencia ha sido registrada exitosamente en el canal de administración.",
@@ -1642,7 +1645,7 @@ class AsistenciaView(View):
         )
         await interaction.response.edit_message(embed=embed_final, view=self)
         self.stop()
-        
+
 @bot.command(name="dkpdetalle")
 @requiere_vinculacion()
 async def dkp_detalle(ctx, *, nombre_usuario: str = None):
