@@ -2235,6 +2235,9 @@ def clean_name(line: str) -> str:
       - Si la línea contiene 'killa'  -> 'Killa'
       - Si la línea contiene 'nebu'   -> 'xNebu'
       - Si la línea contiene 'tinta china' -> 'ャンクス'
+      - Si la línea contiene 'rjdi0' o 'ridio -> 'rjdio'
+      - Si la línea contiene 'dato' -> 'd4to'
+      - Si la línea contiene 'redf 4 wkez' o 'redf 4wkez' -> 'redfawkes'
 
     Si no coincide con nada, se retorna tal cual.
     SOLO PARA ESTE PROYECTO TODO: ARREGLARLO
@@ -2251,6 +2254,12 @@ def clean_name(line: str) -> str:
         return "xNebu"
     if "tinta china" in lower_line:
         return "ャンクス"
+    if "rjdi0" in lower_line or "ridio" in lower_line:
+        return "rjdio"
+    if "dato" in lower_line:
+        return "d4to"
+    if "redf 4 wkez" in lower_line or "redf 4wkez" in lower_line:
+        return "redfawkes"
 
     return line
 
