@@ -1406,29 +1406,39 @@ class AsistenciaView(View):
         self.siguiente_button.callback = self.iniciar_evento
         self.add_item(self.siguiente_button)
 
-    def get_current_options(self):
+    def get_current_options(self) -> List[SelectOption]:
         start = self.current_page * self.names_per_page
         end = start + self.names_per_page
         current_page_names = sorted(self.nombres_filtrados[start:end])
         return [SelectOption(label=nombre, value=nombre) for nombre in current_page_names]
 
-    def get_max_values(self):
+    def get_max_values(self) -> int:
         start = self.current_page * self.names_per_page
         end = start + self.names_per_page
         current_page_names = sorted(self.nombres_filtrados[start:end])
         return len(current_page_names) if current_page_names else 1
 
-    def update_embed(self):
+    def update_embed(self) -> None:
+        """Actualiza self.embed con los nombres paginados."""
         start = self.current_page * self.names_per_page
         end = start + self.names_per_page
         current_page_names = sorted(self.nombres_filtrados[start:end])
+
         nombres_str = "\n".join(current_page_names)
         embed = self.embed_initial.copy()
-        embed.add_field(
-            name=f"Nombres ({self.current_page + 1}/{self.total_pages})",
-            value=f"```\n{nombres_str}\n```",
-            inline=False
-        )
+        if nombres_str:
+            embed.add_field(
+                name=f"Nombres ({self.current_page + 1}/{self.total_pages})",
+                value="```\n" + nombres_str + "\n```",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name=f"Nombres ({self.current_page + 1}/{self.total_pages})",
+                value="```\nNo hay nombres.\n```",
+                inline=False
+            )
+
         self.embed = embed
 
     async def remove_names(self, interaction: discord.Interaction):
@@ -1439,17 +1449,16 @@ class AsistenciaView(View):
                     self.nombres_filtrados.remove(nombre)
 
             self.total_pages = (len(self.nombres_filtrados) - 1) // self.names_per_page + 1
-
             if self.current_page >= self.total_pages:
-                self.current_page = self.total_pages - 1 if self.total_pages > 0 else 0
+                self.current_page = max(self.total_pages - 1, 0)
 
             self.select.options = self.get_current_options()
             self.select.max_values = self.get_max_values()
-
             self.update_embed()
+
             await interaction.response.edit_message(embed=self.embed, view=self)
             await interaction.followup.send(
-                f"Se han eliminado los siguientes nombres: {', '.join(nombres_eliminados)}.",
+                "Se han eliminado los siguientes nombres: " + ", ".join(nombres_eliminados),
                 ephemeral=True
             )
 
@@ -1475,12 +1484,11 @@ class AsistenciaView(View):
 
     async def cancelar_y_mostrar_lista(self, interaction: discord.Interaction):
         self.clear_items()
+        nombres_str = "\n".join(self.nombres_filtrados)
         embed = discord.Embed(
             title="Asistencia del Evento",
-            description=(
-                "Lista de nombres extraídos de las imágenes para copiar manualmente:\n"
-                "```\n" + "\n".join(self.nombres_filtrados) + "\n```"
-            ),
+            description="Lista de nombres extraídos de las imágenes para copiar manualmente:\n"
+                        "```\n" + nombres_str + "\n```",
             color=discord.Color.blue()
         )
         await interaction.response.edit_message(embed=embed, view=self)
@@ -1505,6 +1513,7 @@ class AsistenciaView(View):
         cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
         cancelar.callback = self.cancel_operation
         self.add_item(cancelar)
+
         self.embed = embed
         await interaction.response.edit_message(embed=self.embed, view=self)
 
@@ -1524,6 +1533,7 @@ class AsistenciaView(View):
 
         self.evento_seleccionado = evento_seleccionado
         self.clear_items()
+
         embed = discord.Embed(
             title="CUANTO DKP?",
             description="Selecciona la cantidad de DKP para asignar al evento.",
@@ -1539,6 +1549,7 @@ class AsistenciaView(View):
         cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
         cancelar.callback = self.cancel_operation
         self.add_item(cancelar)
+
         self.embed = embed
         await interaction.response.edit_message(embed=self.embed, view=self)
 
@@ -1557,6 +1568,7 @@ class AsistenciaView(View):
                 return
 
         self.clear_items()
+
         embed = discord.Embed(
             title="EL EVENTO RESTA DKP?",
             description="¿El evento resta DKP?",
@@ -1564,13 +1576,17 @@ class AsistenciaView(View):
         )
         boton_si = Button(label="SI", style=ButtonStyle.danger, custom_id="resta_si")
         boton_no = Button(label="NO", style=ButtonStyle.success, custom_id="resta_no")
+
         boton_si.callback = self.seleccionar_resta
         boton_no.callback = self.seleccionar_resta
+
         self.add_item(boton_si)
         self.add_item(boton_no)
+
         cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
         cancelar.callback = self.cancel_operation
         self.add_item(cancelar)
+
         self.embed = embed
         await interaction.response.edit_message(embed=self.embed, view=self)
 
@@ -1590,31 +1606,32 @@ class AsistenciaView(View):
 
         self.resta_dkp = True if decision == "SI" else False
         self.clear_items()
+
+        nombres_str = "\n".join(self.nombres_filtrados)
         embed = discord.Embed(
             title="CONFIRMAR",
-            description=(
-                f"**Evento:** {self.evento_seleccionado}\n"
-                f"**DKP:** {self.dkp_seleccionado}\n"
-                f"**Resta DKP:** {'SI' if self.resta_dkp else 'NO'}\n\n"
-                f"**Nombres:**\n```\n" + "\n".join(self.nombres_filtrados) + "\n```"
-            ),
+            description="**Evento:** " + str(self.evento_seleccionado) + "\n"
+                        "**DKP:** " + str(self.dkp_seleccionado) + "\n"
+                        "**Resta DKP:** " + ("SI" if self.resta_dkp else "NO") + "\n\n"
+                        "**Nombres:**\n```\n" + nombres_str + "\n```",
             color=discord.Color.gold()
         )
+
         confirmar = Button(label="CONFIRMAR", style=ButtonStyle.success, custom_id="confirmar")
         cancelar = Button(label="CANCELAR", style=ButtonStyle.red, custom_id="cancelar")
+
         confirmar.callback = self.confirmar_operacion
         cancelar.callback = self.cancel_operation
+
         self.add_item(confirmar)
         self.add_item(cancelar)
+
         self.embed = embed
         await interaction.response.edit_message(embed=self.embed, view=self)
 
     async def confirmar_operacion(self, interaction: discord.Interaction):
         noresta = not self.resta_dkp
-        noresta_str = "NORESTA" if self.resta_dkp else ""
         listadenombres = self.nombres_filtrados
-        comando_evento = f"!evento {self.evento_seleccionado} {self.dkp_seleccionado} {noresta_str} " + " ".join(listadenombres)
-        comando_evento = comando_evento.strip()
 
         canal_admin = bot.get_channel(CANAL_ADMIN)
         if canal_admin is None:
@@ -1625,6 +1642,12 @@ class AsistenciaView(View):
             logger.error(f"No se pudo encontrar el canal con ID {CANAL_ADMIN}.")
             return
 
+        for child in self.children:
+            if isinstance(child, Button):
+                child.disabled = True
+
+        await interaction.response.edit_message(view=self)
+
         await handle_evento(
             nombre_evento=self.evento_seleccionado,
             puntaje=self.dkp_seleccionado,
@@ -1634,16 +1657,13 @@ class AsistenciaView(View):
             executor=interaction.user
         )
 
-        for child in self.children:
-            if isinstance(child, Button) and child.custom_id in ["confirmar", "cancelar"]:
-            	child.disabled = True
-
         embed_final = discord.Embed(
             title="Asistencia Registrada",
             description="La asistencia ha sido registrada exitosamente en el canal de administración.",
             color=discord.Color.green()
         )
-        await interaction.response.edit_message(embed=embed_final, view=self)
+
+        await interaction.followup.send(embed=embed_final)
         self.stop()
 
 @bot.command(name="dkpdetalle")
