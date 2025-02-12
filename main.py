@@ -4,10 +4,11 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+load_dotenv()
+
 import data_manager
 import tasks
 
-load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("No se encontró DISCORD_BOT_TOKEN en el archivo .env")
