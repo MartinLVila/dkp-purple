@@ -951,7 +951,7 @@ class DKPCommands(commands.Cog):
             nombre_usuario = found_name
 
         user_data[nombre_usuario]["score"] += puntos_a_sumar
-        registrar_cambio_dkp(nombre_usuario, +puntos_a_sumar, f"Comando sumardkp de {ctx.author}")
+        await registrar_cambio_dkp(nombre_usuario, +puntos_a_sumar, f"Comando sumardkp de {ctx.author}")
         await guardar_datos()
 
         await ctx.send(embed=discord.Embed(
@@ -1030,7 +1030,7 @@ class DKPCommands(commands.Cog):
             return
 
         user_data[nombre_usuario]["score"] -= puntos_a_restar
-        registrar_cambio_dkp(nombre_usuario, -puntos_a_restar, f"Comando restardkp de {ctx.author}")
+        await registrar_cambio_dkp(nombre_usuario, -puntos_a_restar, f"Comando restardkp de {ctx.author}")
         await guardar_datos()
 
         await ctx.send(embed=discord.Embed(
@@ -1269,12 +1269,12 @@ class DKPCommands(commands.Cog):
         penalty_amount = event["penalties"].get(nombre_usuario, 0)
         if penalty_amount > 0:
             user_data[nombre_usuario]["score"] += (penalty_amount + puntaje)
-            registrar_cambio_dkp(nombre_usuario, penalty_amount + puntaje,
+            await registrar_cambio_dkp(nombre_usuario, penalty_amount + puntaje,
                                  f"Llegué tarde (penalización devuelta) - {nombre_evento}")
             del event["penalties"][nombre_usuario]
         else:
             user_data[nombre_usuario]["score"] += puntaje
-            registrar_cambio_dkp(nombre_usuario, +puntaje,
+            await registrar_cambio_dkp(nombre_usuario, +puntaje,
                                  f"Llegué tarde - {nombre_evento}")
 
         event["late_users"].add(nombre_usuario)
