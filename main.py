@@ -4,11 +4,10 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-load_dotenv()
-
 import data_manager
 import tasks
 
+load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("No se encontró DISCORD_BOT_TOKEN en el archivo .env")
@@ -47,5 +46,12 @@ async def on_ready():
 
     print("Comandos registrados:", [cmd.name for cmd in bot.commands])
     print(f"Bot conectado como {bot.user} (ID: {bot.user.id})")
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send("El comando no existe.")
+    else:
+        raise error
 
 bot.run(TOKEN)
