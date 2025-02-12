@@ -520,7 +520,7 @@ class GearScoreModal(Modal):
             "rol": self.role,
             "gear_score": gear_score
         }
-        guardar_datos()
+        await guardar_datos()
 
         embed = discord.Embed(
             title="Equipo Configurado",
@@ -683,7 +683,7 @@ class AusenciaInteractiveView(View):
             user_data[nombre_usuario]["justified_events"].add(nombre_evento)
             logger.info(f"Usuario '{nombre_usuario}' justificó ausencia para el evento '{nombre_evento}'.")
 
-        guardar_datos()
+        await guardar_datos()
 
         await interaction.followup.send(
             embed=discord.Embed(
@@ -792,7 +792,7 @@ class AusenciaInteractiveView(View):
 
         ausencia_until = datetime.utcnow() + timedelta(days=dias)
         user_data[nombre_usuario]["absence_until"] = ausencia_until
-        guardar_datos()
+        await guardar_datos()
 
         await interaction.followup.send(
             embed=discord.Embed(
