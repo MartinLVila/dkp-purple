@@ -81,7 +81,7 @@ async def cargar_datos():
         rows = result.fetchall()
         user_data = {}
         for row in rows:
-            user = row._mapping
+            user = dict(row._mapping)
             if user["absence_until"]:
                 user["absence_until"] = datetime.fromisoformat(user["absence_until"]) if isinstance(user["absence_until"], str) else user["absence_until"]
             if user.get("justified_events") is not None:
@@ -127,7 +127,7 @@ async def cargar_eventos():
         rows = result.fetchall()
         events_info = {}
         for row in rows:
-            event = row._mapping
+            event = dict(row._mapping)
             if event["timestamp"]:
                 event["timestamp"] = datetime.fromisoformat(event["timestamp"]) if isinstance(event["timestamp"], str) else event["timestamp"]
             if event.get("linked_users") is not None:
@@ -174,7 +174,7 @@ async def cargar_eventos_registrados():
     async with AsyncSessionLocal() as session:
         result = await session.execute(text("SELECT * FROM registered_events"))
         rows = result.fetchall()
-        registered_events = {row._mapping["name"] for row in rows}
+        registered_events = {dict(row._mapping)["name"] for row in rows}
 
 async def guardar_eventos_registrados():
     async with AsyncSessionLocal() as session:
@@ -193,7 +193,7 @@ async def cargar_historial_dkp():
         rows = result.fetchall()
         score_history = {}
         for row in rows:
-            entry = row._mapping
+            entry = dict(row._mapping)
             entry["timestamp"] = datetime.fromisoformat(entry["timestamp"]) if isinstance(entry["timestamp"], str) else entry["timestamp"]
             user = entry["user_name"]
             if user not in score_history:
@@ -207,7 +207,7 @@ async def cargar_partys():
         rows = result.fetchall()
         PARTYS = {}
         for row in rows:
-            party = row._mapping
+            party = dict(row._mapping)
             if party.get("members") is not None:
                 PARTYS[party["name"]] = json.loads(party["members"])
             else:
