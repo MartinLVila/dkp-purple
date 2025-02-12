@@ -1,14 +1,14 @@
 import os
 import logging
 import discord
-
 from discord.ext import commands
 from dotenv import load_dotenv
+
+load_dotenv()
 
 import data_manager
 import tasks
 
-load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("No se encontró DISCORD_BOT_TOKEN en el archivo .env")
@@ -35,15 +35,17 @@ bot = commands.Bot(
 
 @bot.event
 async def on_ready():
-    data_manager.cargar_todos_los_datos()
+    await data_manager.init_db()
+    await data_manager.cargar_todos_los_datos()
     logger.info("Datos cargados correctamente.")
 
     tasks.iniciar_tareas(bot)
     logger.info("Tareas iniciadas.")
 
-    await bot.load_extension("commands")
-    logger.info("Extensión 'commands' cargada exitosamente.")
+    await bot.load_extension("dkp_commands")
+    logger.info("Extensión 'dkp_commands' cargada exitosamente.")
 
+    print("Comandos registrados:", [cmd.name for cmd in bot.commands])
     print(f"Bot conectado como {bot.user} (ID: {bot.user.id})")
 
 bot.run(TOKEN)
