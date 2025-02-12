@@ -301,7 +301,7 @@ class DKPCommands(commands.Cog):
                     raise ValueError
                 ausencia_until = datetime.utcnow() + timedelta(days=dias)
                 user_data[nombre_usuario_arg]["absence_until"] = ausencia_until
-                guardar_datos()
+                await guardar_datos()
 
                 await ctx.send(embed=discord.Embed(
                     title="Ausencia Justificada",
@@ -324,7 +324,7 @@ class DKPCommands(commands.Cog):
                     ))
                     return
                 user_data[nombre_usuario_arg]["justified_events"].add(nombre_evento.upper())
-                guardar_datos()
+                await guardar_datos()
                 await ctx.send(embed=discord.Embed(
                     title="Ausencia Justificada",
                     description=(f"Ausencia para el evento **{nombre_evento}** justificada a **{nombre_usuario_arg}**."),
@@ -362,7 +362,7 @@ class DKPCommands(commands.Cog):
                     raise ValueError
                 ausencia_until = datetime.utcnow() + timedelta(days=dias)
                 user_data[nombre_usuario]["absence_until"] = ausencia_until
-                guardar_datos()
+                await guardar_datos()
                 await ctx.send(embed=discord.Embed(
                     title="Ausencia Justificada",
                     description=(f"Ausencia por {dias} día(s) para **{nombre_usuario}**."),
@@ -384,7 +384,7 @@ class DKPCommands(commands.Cog):
                     ))
                     return
                 user_data[nombre_usuario]["justified_events"].add(nombre_evento.upper())
-                guardar_datos()
+                await guardar_datos()
                 await ctx.send(embed=discord.Embed(
                     title="Ausencia Justificada",
                     description=(f"Ausencia para el evento **{nombre_evento}** justificada a **{nombre_usuario}**."),
@@ -658,7 +658,7 @@ class DKPCommands(commands.Cog):
             "status": "normal",
             "absence_until": None
         }
-        guardar_datos()
+        await guardar_datos()
         await ctx.send(embed=discord.Embed(
             title="Vinculación Completada",
             description=f"{member.mention} ha sido vinculado como **{nombre}**.",
@@ -678,7 +678,7 @@ class DKPCommands(commands.Cog):
 
         puntos = user_data[nombre]["score"]
         del user_data[nombre]
-        guardar_datos()
+        await guardar_datos()
 
         await ctx.send(embed=discord.Embed(
             title="Usuario Borrado",
@@ -952,7 +952,7 @@ class DKPCommands(commands.Cog):
 
         user_data[nombre_usuario]["score"] += puntos_a_sumar
         registrar_cambio_dkp(nombre_usuario, +puntos_a_sumar, f"Comando sumardkp de {ctx.author}")
-        guardar_datos()
+        await guardar_datos()
 
         await ctx.send(embed=discord.Embed(
             title="DKP Actualizado",
@@ -1031,7 +1031,7 @@ class DKPCommands(commands.Cog):
 
         user_data[nombre_usuario]["score"] -= puntos_a_restar
         registrar_cambio_dkp(nombre_usuario, -puntos_a_restar, f"Comando restardkp de {ctx.author}")
-        guardar_datos()
+        await guardar_datos()
 
         await ctx.send(embed=discord.Embed(
             title="DKP Actualizado",
@@ -1056,7 +1056,7 @@ class DKPCommands(commands.Cog):
             user_data[nombre]["status"] = "vacaciones"
             user_data[nombre]["absence_until"] = None
             user_data[nombre]["justified_events"].clear()
-            guardar_datos()
+            await guardar_datos()
             await ctx.send(embed=discord.Embed(
                 title="Vacaciones Activadas",
                 description=f"El usuario **{nombre}** ahora está en VACACIONES.",
@@ -1066,7 +1066,7 @@ class DKPCommands(commands.Cog):
             user_data[nombre]["status"] = "normal"
             user_data[nombre]["absence_until"] = None
             user_data[nombre]["justified_events"].clear()
-            guardar_datos()
+            await guardar_datos()
             await ctx.send(embed=discord.Embed(
                 title="Vacaciones Desactivadas",
                 description=f"El usuario **{nombre}** vuelve a estar ACTIVO.",
@@ -1278,7 +1278,7 @@ class DKPCommands(commands.Cog):
                                  f"Llegué tarde - {nombre_evento}")
 
         event["late_users"].add(nombre_usuario)
-        guardar_datos()
+        await guardar_datos()
         guardar_eventos()
 
         await ctx.send(embed=discord.Embed(
