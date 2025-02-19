@@ -56,35 +56,33 @@ ROLES_DISPONIBLES = [
 ]
 
 def requiere_vinculacion(comando_admin=False):
-    def decorator(func):
-        @commands.check
-        async def wrapper(ctx: commands.Context, *args, **kwargs):
-            if comando_admin:
-                if ctx.author.id not in ADMINS_IDS:
-                    embed = discord.Embed(
-                        title="Permiso Denegado",
-                        description="No tienes permisos para usar este comando.",
-                        color=discord.Color.red()
-                    )
-                    await ctx.send(embed=embed)
-                    raise commands.CheckFailure("Usuario sin permisos de administrador.")
-            else:
-                nombre_usuario = None
-                for nombre, datos in user_data.items():
-                    if datos.get("discord_id") == ctx.author.id:
-                        nombre_usuario = nombre
-                        break
-                if (not nombre_usuario) and (ctx.author.id not in ADMINS_IDS):
-                    embed = discord.Embed(
-                        title="No Vinculado",
-                        description="No estás vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
-                        color=discord.Color.red()
-                    )
-                    await ctx.send(embed=embed)
-                    raise commands.CheckFailure("Usuario no vinculado.")
-            return True
-        return commands.check(wrapper)(func)
-    return decorator
+    async def predicate(ctx: commands.Context):
+        if comando_admin:
+            if ctx.author.id not in ADMINS_IDS:
+                embed = discord.Embed(
+                    title="Permiso Denegado",
+                    description="No tienes permisos para usar este comando.",
+                    color=discord.Color.red()
+                )
+                await ctx.send(embed=embed)
+                raise commands.CheckFailure("Usuario sin permisos de administrador.")
+        else:
+            nombre_usuario = None
+            for nombre, datos in user_data.items():
+                if datos.get("discord_id") == ctx.author.id:
+                    nombre_usuario = nombre
+                    break
+            if (not nombre_usuario) and (ctx.author.id not in ADMINS_IDS):
+                embed = discord.Embed(
+                    title="No Vinculado",
+                    description="No estás vinculado al sistema DKP. Pide a un oficial que te vincule primero.",
+                    color=discord.Color.red()
+                )
+                await ctx.send(embed=embed)
+                raise commands.CheckFailure("Usuario no vinculado.")
+        return True
+    return commands.check(predicate)
+
 
 class DKPCommands(commands.Cog):
     def __init__(self, bot):
@@ -153,17 +151,25 @@ class DKPCommands(commands.Cog):
         cambios_usuario = score_history[nombre_usuario]
         cambios_7_dias = []
         for registro in cambios_usuario:
-            try:
-                fecha_cambio = datetime.fromisoformat(registro["timestamp"]).replace(tzinfo=ZoneInfo("UTC"))
-            except ValueError:
+            ts = registro.get("timestamp")
+            if isinstance(ts, str):
                 try:
-                    fecha_cambio = datetime.strptime(registro["timestamp"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=ZoneInfo("UTC"))
+                    fecha_utc = datetime.fromisoformat(ts)
+                    if fecha_utc.tzinfo is None:
+                        fecha_utc = fecha_utc.replace(tzinfo=ZoneInfo("UTC"))
                 except ValueError:
-                    logger.error(f"Formato de fecha inválido en registro DKP de '{nombre_usuario}': {registro['timestamp']}")
-                    continue
-
-            if fecha_cambio >= hace_7_dias:
-                cambios_7_dias.append((fecha_cambio, registro["delta"], registro.get("razon", "")))
+                    try:
+                        fecha_utc = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=ZoneInfo("UTC"))
+                    except ValueError:
+                        logger.error(f"Formato de fecha inválido en registro DKP de '{nombre_usuario}': {ts}")
+                        continue
+            else:
+                fecha_utc = ts
+                if fecha_utc.tzinfo is None:
+                    fecha_utc = fecha_utc.replace(tzinfo=ZoneInfo("UTC"))
+            if fecha_utc >= hace_7_dias:
+                fecha_gmt3 = fecha_utc.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+                cambios_7_dias.append((fecha_gmt3, registro.get("delta"), registro.get("razon", "")))
 
         if not cambios_7_dias:
             await ctx.send(embed=discord.Embed(
@@ -173,12 +179,11 @@ class DKPCommands(commands.Cog):
             ))
             return
 
-        cambios_7_dias.sort(key=lambda x: x[0])  # ordenar por fecha
+        cambios_7_dias.sort(key=lambda x: x[0])
         desc = "```\nFecha               |  ΔDKP  | Razón\n"
-        desc += "-"*50 + "\n"
-        for (fecha, delta, razon) in cambios_7_dias:
-            fecha_gmt3 = fecha.astimezone(ZONA_HORARIA)
-            fecha_str = fecha_gmt3.strftime("%Y-%m-%d %H:%M")
+        desc += "-" * 50 + "\n"
+        for fecha, delta, razon in cambios_7_dias:
+            fecha_str = fecha.strftime("%Y-%m-%d %H:%M")
             desc += f"{fecha_str:<18} | {str(delta):>5} | {razon}\n"
         desc += "```"
 
@@ -305,7 +310,7 @@ class DKPCommands(commands.Cog):
 
                 await ctx.send(embed=discord.Embed(
                     title="Ausencia Justificada",
-                    description=(f"Ausencia por **{dias}** día(s) para **{nombre_usuario_arg}**."),
+                    description=f"Ausencia por **{dias}** día(s) para **{nombre_usuario_arg}**.",
                     color=discord.Color.yellow()
                 ))
                 return
@@ -316,10 +321,8 @@ class DKPCommands(commands.Cog):
                     eventos_disponibles = ", ".join(sorted(registered_events))
                     await ctx.send(embed=discord.Embed(
                         title="Evento No Registrado",
-                        description=(
-                            f"El evento **{nombre_evento}** no está en la lista.\n\n"
-                            f"Eventos disponibles: **{eventos_disponibles}**"
-                        ),
+                        description=(f"El evento **{nombre_evento}** no está en la lista.\n\n"
+                                     f"Eventos disponibles: **{eventos_disponibles}**"),
                         color=discord.Color.red()
                     ))
                     return
@@ -327,7 +330,7 @@ class DKPCommands(commands.Cog):
                 await guardar_datos()
                 await ctx.send(embed=discord.Embed(
                     title="Ausencia Justificada",
-                    description=(f"Ausencia para el evento **{nombre_evento}** justificada a **{nombre_usuario_arg}**."),
+                    description=f"Ausencia para el evento **{nombre_evento}** justificada a **{nombre_usuario_arg}**.",
                     color=discord.Color.yellow()
                 ))
                 return
@@ -365,7 +368,7 @@ class DKPCommands(commands.Cog):
                 await guardar_datos()
                 await ctx.send(embed=discord.Embed(
                     title="Ausencia Justificada",
-                    description=(f"Ausencia por {dias} día(s) para **{nombre_usuario}**."),
+                    description=f"Ausencia por {dias} día(s) para **{nombre_usuario}**.",
                     color=discord.Color.yellow()
                 ))
                 return
@@ -375,11 +378,9 @@ class DKPCommands(commands.Cog):
                     eventos_disponibles = ", ".join(sorted(registered_events))
                     await ctx.send(embed=discord.Embed(
                         title="Evento No Registrado",
-                        description=(
-                            f"El evento **{nombre_evento}** no está registrado.\n\n"
-                            f"Eventos disponibles: **{eventos_disponibles}**\n"
-                            "Si falta, pide a un oficial que lo registre."
-                        ),
+                        description=(f"El evento **{nombre_evento}** no está registrado.\n\n"
+                                     f"Eventos disponibles: **{eventos_disponibles}**\n"
+                                     "Si falta, pide a un oficial que lo registre."),
                         color=discord.Color.red()
                     ))
                     return
@@ -387,7 +388,7 @@ class DKPCommands(commands.Cog):
                 await guardar_datos()
                 await ctx.send(embed=discord.Embed(
                     title="Ausencia Justificada",
-                    description=(f"Ausencia para el evento **{nombre_evento}** justificada a **{nombre_usuario}**."),
+                    description=f"Ausencia para el evento **{nombre_evento}** justificada a **{nombre_usuario}**.",
                     color=discord.Color.yellow()
                 ))
                 return
@@ -656,7 +657,8 @@ class DKPCommands(commands.Cog):
             "justificado": [],
             "justified_events": set(),
             "status": "normal",
-            "absence_until": None
+            "absence_until": None,
+            "equipo": {}
         }
         await guardar_datos()
         await ctx.send(embed=discord.Embed(
@@ -789,10 +791,7 @@ class DKPCommands(commands.Cog):
             save_partys()
             await ctx.send(embed=discord.Embed(
                 title="Miembros Agregados",
-                description=(
-                    f"Agregados a **{party_name_normalizado}**:\n"
-                    + ", ".join(usuarios_a_agregar)
-                ),
+                description=f"Agregados a **{party_name_normalizado}**: " + ", ".join(usuarios_a_agregar),
                 color=discord.Color.green()
             ))
         else:
@@ -1086,7 +1085,7 @@ class DKPCommands(commands.Cog):
 
         lines = []
         lines.append(f"{'Nombre':<20} {'Estado':<40}")
-        lines.append("-"*60)
+        lines.append("-" * 60)
         ahora = datetime.utcnow()
 
         for nombre, datos in user_data.items():
@@ -1201,7 +1200,6 @@ class DKPCommands(commands.Cog):
             color=discord.Color.green()
         )
         await ctx.send(embed=embed)
-
 
     @commands.command(name="llegue")
     @requiere_vinculacion()
