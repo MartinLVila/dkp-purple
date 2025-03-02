@@ -154,7 +154,7 @@ async def guardar_eventos():
                 "timestamp": event["timestamp"].isoformat() if event.get("timestamp") else None,
                 "puntaje": event.get("puntaje"),
                 "linked_users": json.dumps(event.get("linked_users") or []),
-                "late_users": json.dumps(event.get("late_users") or []),
+                "late_users": json.dumps(list(event.get("late_users") or [])),
                 "penalties": json.dumps(event.get("penalties") or {})
             }
             if existing:
