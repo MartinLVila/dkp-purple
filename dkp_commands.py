@@ -2,6 +2,7 @@ import os
 import logging
 import requests
 import discord
+import asyncio
 
 from discord.ext import commands
 from datetime import datetime, timedelta
@@ -219,7 +220,59 @@ class DKPCommands(commands.Cog):
             color=discord.Color.blue()
         )
         await ctx.send(embed=embed, view=view)
+        
+    @commands.command(name="gs")
+    @requiere_vinculacion()
+    async def gs(self, ctx, gear_score: int):
+        nombre_usuario = None
+        for n, datos in user_data.items():
+            if datos.get("discord_id") == ctx.author.id:
+                nombre_usuario = n
+                break
 
+        if not nombre_usuario:
+            await ctx.send(embed=discord.Embed(
+                title="No Vinculado",
+                description="No se encontró tu vinculación en el sistema DKP.",
+                color=discord.Color.red()
+            ))
+            return
+
+        if gear_score < 0 or gear_score > 10000:
+            await ctx.send(embed=discord.Embed(
+                title="Gear Score Inválido",
+                description="El Gear Score debe estar entre 0 y 10,000.",
+                color=discord.Color.red()
+            ))
+            return
+
+        equipo_actual = user_data[nombre_usuario].get("equipo", {})
+        if not (equipo_actual.get("arma_principal") and 
+                equipo_actual.get("arma_secundaria") and 
+                equipo_actual.get("rol")):
+            await ctx.send(embed=discord.Embed(
+                title="Equipo Incompleto",
+                description="Primero debes configurar tu equipo usando `!equipo`.",
+                color=discord.Color.red()
+            ))
+            return
+
+        user_data[nombre_usuario]["equipo"]["gear_score"] = gear_score
+        await guardar_datos()
+
+        await ctx.send(embed=discord.Embed(
+            title="Gear Score Actualizado",
+            description=f"Tu Gear Score ha sido actualizado a **{gear_score}**.",
+            color=discord.Color.green()
+        ))
+
+    @gs.error
+    async def gs_error(self, ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("Debes proporcionar el Gear Score. Ejemplo: `!gs 5000`")
+        else:
+            raise error
+        
     @commands.command(name="registroevento")
     @requiere_vinculacion(comando_admin=True)
     async def registroevento(self, ctx, nombre_evento: str):
@@ -234,7 +287,7 @@ class DKPCommands(commands.Cog):
                 return
 
         registered_events.add(nombre_evento)
-        guardar_eventos_registrados()
+        await guardar_eventos_registrados()
         await ctx.send(embed=discord.Embed(
             title="Evento Registrado",
             description=f"Evento permanente **{nombre_evento}** registrado.",
@@ -259,7 +312,7 @@ class DKPCommands(commands.Cog):
             return
 
         registered_events.remove(to_remove)
-        guardar_eventos_registrados()
+        await guardar_eventos_registrados()
         await ctx.send(embed=discord.Embed(
             title="Evento Eliminado",
             description=f"Se eliminó el evento permanente **{to_remove}**.",
@@ -1277,7 +1330,7 @@ class DKPCommands(commands.Cog):
 
         event["late_users"].add(nombre_usuario)
         await guardar_datos()
-        guardar_eventos()
+        await guardar_eventos()
 
         await ctx.send(embed=discord.Embed(
             title="Llegada Tardía Justificada",

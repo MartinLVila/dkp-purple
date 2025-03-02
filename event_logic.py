@@ -11,6 +11,7 @@ logger = logging.getLogger("event_logic")
 CANAL_ADMIN = int(os.getenv("CANAL_ADMIN", 0))
 CANAL_TARDE = int(os.getenv("CANAL_TARDE", 0))
 
+
 async def handle_evento(
     nombre_evento: str,
     puntaje: int,
@@ -28,6 +29,14 @@ async def handle_evento(
         await channel.send(embed=embed)
         logger.warning(f"'{executor}' intentó crear un evento con puntaje <= 0: {puntaje}")
         return
+    
+    if CANAL_ADMIN is None:
+    	await interaction.response.send_message(
+        	"No se pudo encontrar el canal de administración.",
+        	ephemeral=True
+    	)
+    	logger.error(f"No se pudo encontrar el canal con ID {CANAL_ADMIN}.")
+    	return
 
     user_data_lower = {ud.lower(): ud for ud in user_data.keys()}
     usuarios_final = set()
@@ -44,7 +53,7 @@ async def handle_evento(
     events_info[nombre_evento] = {
         "timestamp": event_time,
         "linked_users": list(usuarios_final),
-        "late_users": [],
+        "late_users": set(),
         "puntaje": puntaje,
         "penalties": {}
     }
