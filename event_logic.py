@@ -31,12 +31,9 @@ async def handle_evento(
         return
     
     if CANAL_ADMIN is None:
-    	await interaction.response.send_message(
-        	"No se pudo encontrar el canal de administración.",
-        	ephemeral=True
-    	)
-    	logger.error(f"No se pudo encontrar el canal con ID {CANAL_ADMIN}.")
-    	return
+        await channel.send("No se pudo encontrar el canal de administración.")
+        logger.error(f"No se pudo encontrar el canal con ID {CANAL_ADMIN}.")
+        return
 
     user_data_lower = {ud.lower(): ud for ud in user_data.keys()}
     usuarios_final = set()
@@ -112,7 +109,6 @@ async def handle_evento(
                     await registrar_cambio_dkp(nombre, -penalizacion, f"Evento {nombre_evento}: NO ASISTIÓ")
 
                     events_info[nombre_evento]["penalties"][nombre] = penalizacion
-
                     estados_usuario[nombre] = "NO ASISTIÓ"
 
     await guardar_datos()
@@ -121,7 +117,7 @@ async def handle_evento(
     all_users = sorted(user_data.items(), key=lambda x: x[0].lower())
     desc = "```\n"
     desc += "{:<15} {:<15} {:<10} {:<10}\n".format("Nombre", "Estado", "Antes", "Después")
-    desc += "-"*55 + "\n"
+    desc += "-" * 55 + "\n"
     for nombre, datos in all_users:
         antes = old_scores.get(nombre, 0)
         despues = datos["score"]
@@ -135,6 +131,16 @@ async def handle_evento(
         description=desc
     )
     await channel.send(embed=embed)
+
+    not_attended = []
+    for nombre, datos in user_data.items():
+        estado = estados_usuario.get(nombre, "ACTIVO")
+        if estado == "NO ASISTIÓ" and "discord_id" in datos:
+            not_attended.append(f"<@{datos['discord_id']}>")
+    
+    if not_attended:
+        tag_message = "Los siguientes usuarios no asistieron: " + ", ".join(not_attended)
+        await channel.send(tag_message)
 
     if no_encontrados:
         mensaje_no_encontrados = "No se encontraron los siguientes usuarios:\n" + ", ".join(no_encontrados)
